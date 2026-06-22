@@ -1,0 +1,817 @@
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "./lib/supabase";
+import { STAGES, STAGE_MAP, COUNTRIES, YNP, PP_STATUSES, TRADE_TEST_OPTS, EMPTY_CAND, EMPTY_JOB, uid, fmtDate, today, todayISO, daysUntil, sanitizeForDb } from "./lib/constants";
+import Login from "./components/Login";
+import Databank from "./components/Databank";
+import * as XLSX from "xlsx";
+
+// ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
+function exportExcel(cands, jobs, jobId) {
+  const job = jobs.find(j=>j.id===jobId);
+  if (!job) return;
+  const list = cands.filter(c=>c.job_id===jobId);
+  const wb = XLSX.utils.book_new();
+  const filled = list.filter(c=>c.stage==="deployed").length;
+
+  const coverRows = [
+    ["","","","","","",""],
+    ["","RIVERSIDE ENTERPRISES RECRUITMENT CONSULTANTS","","","","",""],
+    ["","Overseas Employment Promoters | Govt. of Pakistan Licensed","","","","",""],
+    ["","","","","","",""],
+    ["","CLIENT STATUS REPORT","","","","",""],
+    ["","","","","","",""],
+    ["","Client:",job.client,"","Country:",job.country,""],
+    ["","Order Ref:",job.ref,"","City:",job.city,""],
+    ["","Position:",job.position,"","Vacancies:",job.vacancies,""],
+    ["","Report Date:",today(),"","Deadline:",fmtDate(job.deadline),""],
+    ["","","","","","",""],
+    ["","PIPELINE SUMMARY","","","","",""],
+    ["","","","","","",""],
+  ];
+  let stageRows = [["","Stage","Candidates","","","",""]];
+  STAGES.forEach(s=>{ const n=list.filter(c=>c.stage===s.id).length; if(n>0) stageRows.push(["",s.label,n,"","","",""]); });
+  stageRows.push(["","","","","","",""]);
+  stageRows.push(["","TOTAL CANDIDATES",list.length,"","DEPLOYED",filled,""]);
+  const wsCover = XLSX.utils.aoa_to_sheet([...coverRows,...stageRows]);
+  wsCover["!cols"] = [{wch:3},{wch:30},{wch:28},{wch:3},{wch:18},{wch:22},{wch:3}];
+  wsCover["!merges"] = [{s:{r:1,c:1},e:{r:1,c:5}},{s:{r:2,c:1},e:{r:2,c:5}},{s:{r:4,c:1},e:{r:4,c:5}},{s:{r:11,c:1},e:{r:11,c:5}}];
+  XLSX.utils.book_append_sheet(wb, wsCover, "Summary");
+
+  const headers = ["S.No","Full Name","Father Name","CNIC","Phone","Trade","Exp.","Passport","Pass. Expiry","Stage",
+    "Offer Letter","Contract","Electronic No.","Visa Auth Date","Visa No.","Visa Issue Date",
+    "Medical","Medical Date","Medical Expiry","Trade Test","Trade Test Date",
+    "PP Status","PP Sub Date","Dispatch Date","Recv. Embassy","Stamping Date","BEOE","BEOE Perm #","BEOE Reg #","BEOE Fee","Flight Date","Objection","Remarks"];
+  const rows = list.map((c,i)=>[
+    i+1,c.name,c.father_name,c.cnic,c.phone,c.trade,c.experience,c.passport,c.passport_expiry?fmtDate(c.passport_expiry):"",STAGE_MAP[c.stage]?.label||c.stage,
+    c.offer_letter,c.contract,c.electronic_no,c.visa_auth_date?fmtDate(c.visa_auth_date):"",c.visa_no,c.visa_issue_date?fmtDate(c.visa_issue_date):"",
+    c.medical_status,c.medical_date?fmtDate(c.medical_date):"",c.medical_expiry?fmtDate(c.medical_expiry):"",c.trade_test_status,c.trade_test_date?fmtDate(c.trade_test_date):"",
+    c.pp_sub_status,c.pp_sub_date?fmtDate(c.pp_sub_date):"",c.pp_dispatch_date?fmtDate(c.pp_dispatch_date):"",c.pp_received_date?fmtDate(c.pp_received_date):"",c.stamping_date?fmtDate(c.stamping_date):"",c.beoe_status,c.beoe_permission_no||"",c.beoe_registration_no||"",c.beoe_fee_paid||"",c.flight_date?fmtDate(c.flight_date):"",c.objection,c.remarks
+  ]);
+  const wsData = XLSX.utils.aoa_to_sheet([[`STATUS REPORT — ${job.client.toUpperCase()} | ${job.ref} | ${job.position} | ${today()}`],[],headers,...rows]);
+  wsData["!cols"] = headers.map(()=>({wch:16}));
+  wsData["!merges"] = [{s:{r:0,c:0},e:{r:0,c:33}}];
+  XLSX.utils.book_append_sheet(wb, wsData, "Candidate Status");
+
+  const clientHeaders = ["S.No","Name","Trade","Passport No.","Stage","Medical","Visa No.","Flight Date","Status / Remarks"];
+  const clientRows = list.map((c,i)=>[i+1,c.name,c.trade,c.passport,STAGE_MAP[c.stage]?.label||c.stage,c.medical_status||(c.medical_date?"Done":"—"),c.visa_no||"—",c.flight_date?fmtDate(c.flight_date):"—",c.objection?`⚠ ${c.objection}`:c.remarks||"In process"]);
+  const wsClient = XLSX.utils.aoa_to_sheet([[`CLIENT UPDATE — ${job.client} | ${job.position} | Ref: ${job.ref} | ${today()}`],[`Riverside Enterprises Recruitment Consultants, Lahore | Vacancies: ${job.vacancies} | Deployed: ${filled}`],[],clientHeaders,...clientRows]);
+  wsClient["!cols"] = [{wch:5},{wch:22},{wch:16},{wch:14},{wch:22},{wch:10},{wch:13},{wch:13},{wch:30}];
+  wsClient["!merges"] = [{s:{r:0,c:0},e:{r:0,c:8}},{s:{r:1,c:0},e:{r:1,c:8}}];
+  XLSX.utils.book_append_sheet(wb, wsClient, "Client Update");
+
+  XLSX.writeFile(wb, `Riverside_${job.client.replace(/\s+/g,"_")}_${job.ref}_${today().replace(/\//g,"-")}.xlsx`);
+}
+
+function buildWA(cands, jobs, jobId) {
+  const job = jobs.find(j=>j.id===jobId);
+  if (!job) return "";
+  const list = cands.filter(c=>c.job_id===jobId);
+  const deployed = list.filter(c=>c.stage==="deployed").length;
+  const inProcess = list.filter(c=>!["deployed","rejected"].includes(c.stage)).length;
+  const lines = STAGES.map(s=>{ const n=list.filter(c=>c.stage===s.id).length; return n>0?`  ▸ ${s.label}: *${n}*`:null; }).filter(Boolean).join("\n");
+  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Position:* ${job.position}\n*Country:* ${job.country}, ${job.city}\n*Total Vacancies:* ${job.vacancies}\n\n*Pipeline Breakdown:*\n${lines}\n\n✅ *Deployed:* ${deployed} of ${job.vacancies}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
+}
+
+// ─── SMALL COMPONENTS ────────────────────────────────────────────────────────
+const StagePill = ({ stageId, small }) => {
+  const s = STAGE_MAP[stageId];
+  if (!s) return <span style={{color:"#9CA3AF",fontSize:12}}>—</span>;
+  return <span style={{ display:"inline-flex",alignItems:"center",gap:5,background:`${s.color}18`,color:s.color,padding:small?"2px 8px":"4px 10px",borderRadius:20,fontSize:small?10:11,fontWeight:600,whiteSpace:"nowrap",border:`1px solid ${s.color}30` }}>
+    <span style={{width:6,height:6,borderRadius:"50%",background:s.color,flexShrink:0}}/>{s.label}
+  </span>;
+};
+
+const Dot = ({val}) => {
+  const c = val==="Yes"?"#10B981":val==="No"?"#EF4444":val==="Pending"?"#F59E0B":val==="Pass"?"#10B981":val==="Fail"?"#EF4444":"#D1D5DB";
+  return <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12}}><span style={{width:8,height:8,borderRadius:"50%",background:c,flexShrink:0}}/>{val||"—"}</span>;
+};
+
+const StatCard = ({label,value,sub,accent}) => (
+  <div style={{background:"#fff",borderRadius:12,padding:"16px 18px",border:"1px solid #E5E7EB",position:"relative",overflow:"hidden"}}>
+    <div style={{position:"absolute",top:0,left:0,bottom:0,width:4,background:accent||"#6366F1"}}/>
+    <div style={{fontSize:11,color:"#6B7280",marginBottom:6,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
+    <div style={{fontSize:26,fontWeight:700,color:"#111827",lineHeight:1}}>{value}</div>
+    {sub&&<div style={{fontSize:11,color:"#9CA3AF",marginTop:5}}>{sub}</div>}
+  </div>
+);
+
+const Avatar = ({ url, name, size=36 }) => url
+  ? <img src={url} alt={name} style={{ width:size, height:size, borderRadius:8, objectFit:"cover", flexShrink:0 }} />
+  : <div style={{ width:size, height:size, borderRadius:8, background:"#F3F4F6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size/3, fontWeight:600, color:"#9CA3AF", flexShrink:0 }}>{(name||"?").charAt(0).toUpperCase()}</div>;
+
+// ─── MAIN APP ────────────────────────────────────────────────────────────────
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [page, setPage] = useState("dashboard");
+  const [cands, setCands] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [log, setLog] = useState([]);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+  const [modal, setModal] = useState(null);
+  const [editId, setEditId] = useState(null);
+  const [cf, setCf] = useState(EMPTY_CAND);
+  const [jf, setJf] = useState(EMPTY_JOB);
+  const [search, setSearch] = useState("");
+  const [stageFil, setStageFil] = useState("");
+  const [jobFil, setJobFil] = useState("");
+  const [detailId, setDetailId] = useState(null);
+  const [dtab, setDtab] = useState("overview");
+  const [rptJob, setRptJob] = useState("");
+  const [waText, setWaText] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  // ── AUTH ──
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setLoadingAuth(false); });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!session) { setProfile(null); return; }
+    supabase.from("profiles").select("*").eq("id", session.user.id).single()
+      .then(({ data }) => setProfile(data));
+  }, [session]);
+
+  const fetchAll = useCallback(async () => {
+    const { data: jobsData } = await supabase.from("job_orders").select("*").order("created_at",{ascending:false});
+    const { data: candsData } = await supabase.from("candidates").select("*").order("added_date",{ascending:false});
+    const { data: logData } = await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(60);
+    setJobs(jobsData||[]);
+    setCands(candsData||[]);
+    setLog((logData||[]).map(l=>({ msg:l.message, time:new Date(l.created_at).toLocaleDateString("en-GB") })));
+  }, []);
+
+  useEffect(() => { if (session) fetchAll(); }, [session, fetchAll]);
+
+  const addLog = async (msg) => {
+    setLog(l=>[{msg,time:today()},...l].slice(0,60));
+    if (profile) await supabase.from("activity_log").insert([{ message:msg, created_by:profile.id }]);
+  };
+
+  if (loadingAuth) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"sans-serif",color:"#6B7280"}}>Loading…</div>;
+  if (!session) return <Login />;
+  if (!profile) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"sans-serif",color:"#6B7280"}}>Setting up your account…</div>;
+
+  // ── ROLE-BASED VISIBILITY ──
+  const visibleJobs = profile.role === "manager" && profile.assigned_clients?.length
+    ? jobs.filter(j => profile.assigned_clients.includes(j.client))
+    : jobs;
+  const visibleJobIds = new Set(visibleJobs.map(j=>j.id));
+  const visibleCandsAll = profile.role === "manager" && profile.assigned_clients?.length
+    ? cands.filter(c => !c.job_id || visibleJobIds.has(c.job_id))
+    : cands;
+
+  // ── CRUD ──
+  const saveCand = async () => {
+    if (!cf.name.trim()) { alert("Full name is required"); return; }
+    const payload = sanitizeForDb({ ...cf });
+    delete payload.id;
+    if (editId) {
+      const { error } = await supabase.from("candidates").update(payload).eq("id", editId);
+      if (error) { alert(error.message); return; }
+      addLog(`Updated: ${cf.name}`);
+    } else {
+      const { error } = await supabase.from("candidates").insert([{ ...payload, created_by: profile.id }]);
+      if (error) { alert(error.message); return; }
+      addLog(`Added: ${cf.name} — ${cf.trade}`);
+    }
+    setModal(null); setEditId(null); setCf(EMPTY_CAND);
+    fetchAll();
+  };
+
+  const saveJob = async () => {
+    if (!jf.ref.trim() || !jf.client.trim()) { alert("Reference and client required"); return; }
+    const payload = sanitizeForDb({ ...jf, vacancies:Number(jf.vacancies)||1 });
+    const { error } = await supabase.from("job_orders").insert([{ ...payload, created_by: profile.id }]);
+    if (error) { alert(error.message); return; }
+    addLog(`New order: ${jf.ref} — ${jf.client}`);
+    setModal(null); setJf(EMPTY_JOB);
+    fetchAll();
+  };
+
+  const openEdit = (c) => { setEditId(c.id); setCf({...EMPTY_CAND,...c}); setModal("cand"); };
+  const delCand = async (id) => {
+    if (!window.confirm("Delete this candidate?")) return;
+    const c = cands.find(x=>x.id===id);
+    const { error } = await supabase.from("candidates").delete().eq("id", id);
+    if (error) { alert(error.message); return; }
+    addLog(`Deleted: ${c?.name}`);
+    if (detailId===id) setDetailId(null);
+    fetchAll();
+  };
+  const delJob = async (id) => {
+    if (!window.confirm("Delete this job order?")) return;
+    const j = jobs.find(x=>x.id===id);
+    const { error } = await supabase.from("job_orders").delete().eq("id", id);
+    if (error) { alert(error.message); return; }
+    addLog(`Deleted job: ${j?.ref}`);
+    fetchAll();
+  };
+  const moveStage = async (cid, sid) => {
+    const { error } = await supabase.from("candidates").update({ stage: sid }).eq("id", cid);
+    if (error) { alert(error.message); return; }
+    const c = cands.find(x=>x.id===cid);
+    addLog(`${c?.name} → ${STAGE_MAP[sid]?.label}`);
+    fetchAll();
+  };
+
+  const dc = detailId ? cands.find(c=>c.id===detailId) : null;
+  const djob = dc ? jobs.find(j=>j.id===dc.job_id) : null;
+
+  const assignedCands = visibleCandsAll.filter(c=>c.job_id); // those in actual job pipelines
+
+  const visibleCands = assignedCands.filter(c=>{
+    const q=search.toLowerCase();
+    return (!q||c.name.toLowerCase().includes(q)||(c.trade||"").toLowerCase().includes(q)||(c.passport||"").toLowerCase().includes(q))
+        && (!stageFil||c.stage===stageFil)
+        && (!jobFil||c.job_id===jobFil);
+  });
+
+  const totalDeployed = assignedCands.filter(c=>c.stage==="deployed").length;
+  const totalActive = assignedCands.filter(c=>!["deployed","rejected"].includes(c.stage)).length;
+  const passportExpiring = visibleCandsAll.filter(c=>{ const d=daysUntil(c.passport_expiry); return d!==null && d<90; });
+  const medicalExpiring = visibleCandsAll.filter(c=>{ const d=daysUntil(c.medical_expiry); return d!==null && d<30 && d>=0; });
+
+  // ── STYLE TOKENS ──
+  const inp = {padding:"8px 11px",border:"1px solid #E5E7EB",borderRadius:8,fontSize:13,width:"100%",color:"#111827",background:"#fff",fontFamily:"inherit",outline:"none"};
+  const btn = (extra={}) => ({background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:"7px 15px",cursor:"pointer",fontSize:13,color:"#374151",fontFamily:"inherit",...extra});
+  const pri = btn({background:"#6366F1",border:"1px solid #6366F1",color:"#fff"});
+  const card = {background:"#fff",borderRadius:12,border:"1px solid #E5E7EB",overflow:"hidden"};
+  const th = {padding:"10px 14px",fontSize:11,fontWeight:600,color:"#6B7280",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid #F3F4F6",textAlign:"left",whiteSpace:"nowrap",background:"#F9FAFB"};
+  const td = {padding:"11px 14px",fontSize:13,color:"#374151",borderBottom:"1px solid #F9FAFB",verticalAlign:"middle"};
+  const S = { card, th, td };
+  const nav = (p) => ({display:"flex",alignItems:"center",gap:9,padding:"9px 14px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:500,color:page===p?"#6366F1":"#6B7280",background:page===p?"#EEF2FF":"none",border:"none",fontFamily:"inherit",width:"100%",textAlign:"left"});
+
+  const NavItem = ({p,icon,label}) => (
+    <button style={nav(p)} onClick={()=>{setPage(p);setMobileNavOpen(false);}}><span style={{fontSize:16}}>{icon}</span>{label}</button>
+  );
+
+  const FR = ({label,children,span}) => (
+    <div style={{marginBottom:12,gridColumn:span?"1/-1":"auto"}}>
+      <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
+      {children}
+    </div>
+  );
+
+  const Modal = ({id,title,wide,children}) => modal!==id?null:(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+         onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:wide||560,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 25px 50px rgba(0,0,0,.2)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
+          <span style={{fontSize:15,fontWeight:700,color:"#111827"}}>{title}</span>
+          <button style={btn({padding:"4px 10px"})} onClick={()=>setModal(null)}>✕</button>
+        </div>
+        <div style={{padding:"20px 22px"}}>{children}</div>
+      </div>
+    </div>
+  );
+
+  const canDelete = profile.role === "admin";
+  const canManage = profile.role === "admin" || profile.role === "manager";
+
+  return (
+    <div style={{display:"flex",minHeight:"100vh",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",background:"#F9FAFB",fontSize:14,color:"#111827"}}>
+
+      {/* MOBILE HEADER */}
+      <div className="mobile-only" style={{display:"none",position:"fixed",top:0,left:0,right:0,height:56,background:"#fff",borderBottom:"1px solid #E5E7EB",alignItems:"center",justifyContent:"space-between",padding:"0 16px",zIndex:150}}>
+        <button onClick={()=>setMobileNavOpen(!mobileNavOpen)} style={{ background:"none",border:"none",fontSize:22,cursor:"pointer" }}>☰</button>
+        <div style={{ fontWeight:700, fontSize:15 }}>Riverside ATS</div>
+        <div style={{ width:30 }}/>
+      </div>
+
+      {/* SIDEBAR */}
+      <div className="sidebar" style={{width:220,background:"#fff",borderRight:"1px solid #E5E7EB",display:"flex",flexDirection:"column",flexShrink:0,position:"sticky",top:0,height:"100vh",overflowY:"auto",zIndex:100,
+        ...(mobileNavOpen ? {position:"fixed",left:0,top:0} : {})}}>
+        <div style={{padding:"20px 16px 12px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:34,height:34,borderRadius:10,background:"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,fontWeight:700,flexShrink:0}}>R</div>
+            <div>
+              <div style={{fontWeight:700,fontSize:13,lineHeight:1.2}}>Riverside ATS</div>
+              <div style={{fontSize:10,color:"#9CA3AF",marginTop:1}}>Overseas Recruitment</div>
+            </div>
+          </div>
+        </div>
+        <div style={{padding:"0 10px",flex:1}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"8px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Main</div>
+          <NavItem p="dashboard" icon="⬛" label="Dashboard"/>
+          <NavItem p="databank" icon="📁" label="CV Databank"/>
+          <NavItem p="candidates" icon="👥" label="In-Process Candidates"/>
+          <NavItem p="pipeline" icon="📊" label="Pipeline"/>
+          <NavItem p="jobs" icon="📋" label="Job Orders"/>
+          <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
+          <NavItem p="reports" icon="📄" label="Status Reports"/>
+          {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
+        </div>
+        <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
+          <div style={{fontSize:11,color:"#9CA3AF"}}>Logged in as</div>
+          <div style={{fontSize:13,fontWeight:600,color:"#374151"}}>{profile.full_name}</div>
+          <div style={{fontSize:11,color:"#6366F1",fontWeight:600,textTransform:"capitalize"}}>{profile.role}</div>
+          <button style={{...btn({fontSize:11,padding:"5px 10px",marginTop:8,width:"100%"})}} onClick={()=>supabase.auth.signOut()}>Sign Out</button>
+        </div>
+      </div>
+      {mobileNavOpen && <div onClick={()=>setMobileNavOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.3)",zIndex:90}}/>}
+
+      {/* MAIN */}
+      <div style={{flex:1,overflow:"auto",minWidth:0}} className="main-content">
+        <div className="desktop-header" style={{background:"#fff",borderBottom:"1px solid #E5E7EB",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:16}}>
+              {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="candidates"&&"In-Process Candidates"}
+              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="staff"&&"Staff Access Management"}
+            </div>
+            <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            {page==="candidates"&&<button style={pri} onClick={()=>{setEditId(null);setCf(EMPTY_CAND);setModal("cand");}}>+ Add Candidate</button>}
+            {page==="jobs"&&canManage&&<button style={pri} onClick={()=>{setJf(EMPTY_JOB);setModal("job");}}>+ New Job Order</button>}
+          </div>
+        </div>
+
+        <div style={{padding:24}} className="content-padding">
+
+          {/* ══ DASHBOARD ══ */}
+          {page==="dashboard"&&(
+            <div>
+              <div className="stat-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
+                <StatCard label="CV Databank" value={visibleCandsAll.filter(c=>!c.job_id).length} sub="Available, unassigned" accent="#9CA3AF"/>
+                <StatCard label="In Pipeline" value={totalActive} sub="Active processing" accent="#F59E0B"/>
+                <StatCard label="Deployed" value={totalDeployed} sub="Successfully placed" accent="#10B981"/>
+                <StatCard label="Open Job Orders" value={visibleJobs.filter(j=>j.status==="Open").length} sub="Active demands" accent="#3B82F6"/>
+              </div>
+
+              {(passportExpiring.length>0 || medicalExpiring.length>0) && (
+                <div style={{...card,border:"1px solid #FEE2E2",marginBottom:16}}>
+                  <div style={{padding:"12px 18px",background:"#FEF2F2",borderBottom:"1px solid #FEE2E2",fontWeight:700,fontSize:13,color:"#991B1B"}}>⚠ Expiry Alerts</div>
+                  <div style={{padding:16}}>
+                    {passportExpiring.length>0 && <>
+                      <div style={{fontSize:12,fontWeight:600,color:"#991B1B",marginBottom:8}}>Passport expiring within 90 days ({passportExpiring.length})</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:medicalExpiring.length?16:0}}>
+                        {passportExpiring.map(c=>(
+                          <div key={c.id} style={{background:"#FEF2F2",border:"1px solid #FEE2E2",borderRadius:8,padding:"8px 14px",cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
+                            <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
+                            <div style={{fontSize:12,color:"#DC2626"}}>Expires: {fmtDate(c.passport_expiry)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>}
+                    {medicalExpiring.length>0 && <>
+                      <div style={{fontSize:12,fontWeight:600,color:"#92400E",marginBottom:8}}>Medical clearance expiring within 30 days ({medicalExpiring.length})</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
+                        {medicalExpiring.map(c=>(
+                          <div key={c.id} style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("process");}}>
+                            <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
+                            <div style={{fontSize:12,color:"#B45309"}}>Medical expires: {fmtDate(c.medical_expiry)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>}
+                  </div>
+                </div>
+              )}
+
+              <div className="dash-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+                <div style={card}>
+                  <div style={{padding:"14px 18px",borderBottom:"1px solid #F3F4F6",fontWeight:600,fontSize:13}}>Active Job Orders</div>
+                  <div>
+                    {visibleJobs.filter(j=>j.status==="Open").map(j=>{
+                      const jcands=assignedCands.filter(c=>c.job_id===j.id);
+                      const dep=jcands.filter(c=>c.stage==="deployed").length;
+                      const pct=j.vacancies?Math.min(100,Math.round(dep/j.vacancies*100)):0;
+                      return <div key={j.id} style={{padding:"12px 18px",borderBottom:"1px solid #F9FAFB"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                          <div><div style={{fontWeight:600,fontSize:13}}>{j.client}</div><div style={{fontSize:12,color:"#6B7280"}}>{j.ref} · {j.position}</div></div>
+                          <div style={{textAlign:"right"}}><div style={{fontWeight:700,color:"#10B981",fontSize:14}}>{dep}/{j.vacancies}</div><div style={{fontSize:11,color:"#9CA3AF"}}>deployed</div></div>
+                        </div>
+                        <div style={{height:6,borderRadius:3,background:"#F3F4F6"}}><div style={{height:6,borderRadius:3,background:"#10B981",width:`${pct}%`}}/></div>
+                      </div>;
+                    })}
+                  </div>
+                </div>
+                <div style={card}>
+                  <div style={{padding:"14px 18px",borderBottom:"1px solid #F3F4F6",fontWeight:600,fontSize:13}}>Recent Activity</div>
+                  <div>{log.slice(0,8).map((a,i)=>(
+                    <div key={i} style={{display:"flex",gap:12,padding:"9px 18px",borderBottom:"1px solid #F9FAFB"}}>
+                      <div style={{width:8,height:8,borderRadius:"50%",background:"#6366F1",marginTop:5,flexShrink:0}}/>
+                      <div><div style={{fontSize:13,color:"#374151"}}>{a.msg}</div><div style={{fontSize:11,color:"#9CA3AF",marginTop:2}}>{a.time}</div></div>
+                    </div>
+                  ))}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ CV DATABANK ══ */}
+          {page==="databank"&&(
+            <Databank candidates={visibleCandsAll} jobs={visibleJobs} profile={profile} onRefresh={fetchAll} addLog={addLog} S={S} inp={inp} btn={btn} pri={pri} FR={FR} />
+          )}
+
+          {/* ══ IN-PROCESS CANDIDATES ══ */}
+          {page==="candidates"&&(
+            <div>
+              <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                <input style={{...inp,maxWidth:280}} placeholder="Search name, trade, passport…" value={search} onChange={e=>setSearch(e.target.value)}/>
+                <select style={{...inp,width:"auto"}} value={stageFil} onChange={e=>setStageFil(e.target.value)}>
+                  <option value="">All stages</option>{STAGES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+                </select>
+                <select style={{...inp,width:"auto"}} value={jobFil} onChange={e=>setJobFil(e.target.value)}>
+                  <option value="">All job orders</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client}</option>)}
+                </select>
+              </div>
+              <div style={card}>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse"}}>
+                    <thead><tr>{["","Name & Trade","Passport","Job Order","Stage","Medical","Visa No.","Actions"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {visibleCands.length?visibleCands.map(c=>{
+                        const job=jobs.find(j=>j.id===c.job_id);
+                        const isExp=passportExpiring.find(x=>x.id===c.id);
+                        return <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
+                          <td style={td}><Avatar url={c.photo_url} name={c.name}/></td>
+                          <td style={td}><div style={{fontWeight:600,color:"#111827"}}>{c.name}</div><div style={{fontSize:12,color:"#6B7280"}}>{c.trade}</div></td>
+                          <td style={td}><div style={{fontFamily:"monospace",fontSize:12}}>{c.passport||"—"}</div><div style={{fontSize:11,color:isExp?"#EF4444":"#9CA3AF"}}>{fmtDate(c.passport_expiry)}</div></td>
+                          <td style={td}><div style={{fontSize:12,fontWeight:500}}>{job?job.ref:"—"}</div><div style={{fontSize:11,color:"#6B7280"}}>{job?job.client:""}</div></td>
+                          <td style={td}><StagePill stageId={c.stage}/></td>
+                          <td style={td}><Dot val={c.medical_status}/></td>
+                          <td style={{...td,fontFamily:"monospace",fontSize:12}}>{c.visa_no||"—"}</td>
+                          <td style={td} onClick={e=>e.stopPropagation()}>
+                            <div style={{display:"flex",gap:6}}>
+                              <button style={btn({padding:"4px 10px",fontSize:12})} onClick={()=>openEdit(c)}>Edit</button>
+                              {canDelete && <button style={btn({padding:"4px 10px",fontSize:12,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>delCand(c.id)}>✕</button>}
+                            </div>
+                          </td>
+                        </tr>;
+                      }):<tr><td colSpan={8} style={{textAlign:"center",padding:40,color:"#9CA3AF"}}>No candidates assigned to job orders yet. Assign from CV Databank.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══ PIPELINE ══ */}
+          {page==="pipeline"&&(
+            <div>
+              <div style={{marginBottom:16}}>
+                <select style={{...inp,width:"auto",minWidth:260}} value={jobFil} onChange={e=>setJobFil(e.target.value)}>
+                  <option value="">All job orders (combined view)</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} — {j.position}</option>)}
+                </select>
+              </div>
+              {(jobFil?visibleJobs.filter(j=>j.id===jobFil):visibleJobs).map(j=>{
+                const jcands=assignedCands.filter(c=>c.job_id===j.id);
+                if(!jcands.length) return null;
+                return <div key={j.id} style={{...card,marginBottom:20}}>
+                  <div style={{padding:"14px 18px",borderBottom:"1px solid #F3F4F6",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                    <div><span style={{fontWeight:700,fontSize:14}}>{j.client}</span><span style={{fontSize:12,color:"#6B7280",marginLeft:10}}>{j.ref} · {j.position}</span></div>
+                    <div style={{fontSize:12,color:"#6B7280"}}>{jcands.length} candidate(s) · Vacancies: {j.vacancies}</div>
+                  </div>
+                  <div style={{overflowX:"auto",padding:"14px 18px"}}>
+                    <div style={{display:"flex",gap:10,minWidth:STAGES.filter(s=>jcands.some(c=>c.stage===s.id)).length*160||400}}>
+                      {STAGES.filter(s=>jcands.some(c=>c.stage===s.id)).map(s=>{
+                        const sc=jcands.filter(c=>c.stage===s.id);
+                        return <div key={s.id} style={{minWidth:150,flexShrink:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+                            <span style={{width:10,height:10,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                            <span style={{fontSize:11,fontWeight:600,color:"#374151"}}>{s.label}</span>
+                            <span style={{marginLeft:"auto",background:"#F3F4F6",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:600}}>{sc.length}</span>
+                          </div>
+                          {sc.map(c=>(
+                            <div key={c.id} style={{background:"#fff",border:`1px solid ${s.color}30`,borderLeft:`3px solid ${s.color}`,borderRadius:8,padding:"9px 11px",marginBottom:7,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,.04)",display:"flex",gap:8,alignItems:"center"}}
+                              onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
+                              <Avatar url={c.photo_url} name={c.name} size={28}/>
+                              <div><div style={{fontWeight:600,fontSize:12,color:"#111827"}}>{c.name}</div><div style={{fontSize:11,color:"#6B7280"}}>{c.trade}</div></div>
+                            </div>
+                          ))}
+                        </div>;
+                      })}
+                    </div>
+                  </div>
+                </div>;
+              })}
+            </div>
+          )}
+
+          {/* ══ JOB ORDERS ══ */}
+          {page==="jobs"&&(
+            <div className="job-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
+              {visibleJobs.map(j=>{
+                const jcands=assignedCands.filter(c=>c.job_id===j.id);
+                const dep=jcands.filter(c=>c.stage==="deployed").length;
+                const pct=j.vacancies?Math.min(100,Math.round(dep/j.vacancies*100)):0;
+                const statusColor=j.status==="Open"?"#10B981":j.status==="Filled"?"#6366F1":"#6B7280";
+                return <div key={j.id} style={{...card,padding:0}}>
+                  <div style={{padding:"16px 18px",borderBottom:"1px solid #F3F4F6"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                      <div><div style={{fontWeight:700,fontSize:15}}>{j.client}</div><div style={{fontSize:12,color:"#6B7280",marginTop:2}}>{j.ref} · {j.country}</div></div>
+                      <span style={{background:`${statusColor}18`,color:statusColor,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:600}}>{j.status}</span>
+                    </div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#374151"}}>{j.position}</div>
+                  </div>
+                  <div style={{padding:"12px 18px"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+                      {[["Vacancies",j.vacancies],["Deployed",dep],["Salary","SAR "+(j.salary||"—")],["Contact",j.contact||"—"]].map(([k,v])=>(
+                        <div key={k}><div style={{fontSize:11,color:"#9CA3AF"}}>{k}</div><div style={{fontSize:13,fontWeight:600}}>{v}</div></div>
+                      ))}
+                    </div>
+                    <div style={{height:6,borderRadius:3,background:"#F3F4F6",marginBottom:10}}><div style={{height:6,borderRadius:3,background:"#10B981",width:`${pct}%`}}/></div>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                      <button style={btn({fontSize:12,flex:1})} onClick={()=>{setJobFil(j.id);setPage("pipeline");}}>View Pipeline</button>
+                      <button style={btn({fontSize:12,flex:1,color:"#6366F1",borderColor:"#C7D2FE"})} onClick={()=>{setRptJob(j.id);setPage("reports");}}>Export Report</button>
+                      {canManage && <button style={btn({fontSize:12,color:"#EF4444",borderColor:"#FEE2E2",padding:"7px 10px"})} onClick={()=>delJob(j.id)}>✕</button>}
+                    </div>
+                  </div>
+                </div>;
+              })}
+            </div>
+          )}
+
+          {/* ══ REPORTS ══ */}
+          {page==="reports"&&(
+            <div>
+              <div style={{...card,marginBottom:20,padding:"20px 22px"}}>
+                <div style={{fontWeight:700,fontSize:15,marginBottom:4}}>Generate Status Report</div>
+                <div style={{fontSize:13,color:"#6B7280",marginBottom:16}}>Select a client to export their full candidate status report.</div>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                  <select style={{...inp,maxWidth:340}} value={rptJob} onChange={e=>{setRptJob(e.target.value);setWaText("");}}>
+                    <option value="">— Select client / job order —</option>
+                    {visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} ({j.position})</option>)}
+                  </select>
+                  <button style={{...pri,opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&exportExcel(cands,jobs,rptJob)}>📊 Export to Excel</button>
+                  <button style={{...btn({background:"#25D366",color:"#fff",border:"none"}),opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&setWaText(buildWA(cands,jobs,rptJob))}>📱 WhatsApp Update</button>
+                </div>
+              </div>
+              {waText&&(
+                <div style={{...card,marginBottom:20,padding:"18px 22px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+                    <div style={{fontWeight:700,fontSize:14}}>WhatsApp Message</div>
+                    <button style={btn({background:copied?"#10B981":"#fff",color:copied?"#fff":"#374151",fontSize:12})} onClick={()=>{navigator.clipboard.writeText(waText);setCopied(true);setTimeout(()=>setCopied(false),2500);}}>{copied?"✓ Copied!":"Copy"}</button>
+                  </div>
+                  <pre style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:10,padding:"14px 16px",fontSize:12,whiteSpace:"pre-wrap",fontFamily:"monospace",color:"#166534",lineHeight:1.7,margin:0}}>{waText}</pre>
+                </div>
+              )}
+              {!rptJob&&(
+                <div className="job-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14}}>
+                  {visibleJobs.map(j=>{
+                    const jc=assignedCands.filter(c=>c.job_id===j.id);
+                    const dep=jc.filter(c=>c.stage==="deployed").length;
+                    return <div key={j.id} style={{...card,padding:"16px 18px"}}>
+                      <div style={{fontWeight:700,fontSize:14}}>{j.client}</div>
+                      <div style={{fontSize:12,color:"#6B7280",marginBottom:12}}>{j.ref}</div>
+                      <button style={{...pri,width:"100%",fontSize:12}} onClick={()=>setRptJob(j.id)}>Select & Export</button>
+                    </div>;
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ STAFF ACCESS (admin only) ══ */}
+          {page==="staff"&&profile.role==="admin"&&(
+            <StaffManagement S={S} inp={inp} btn={btn} pri={pri} jobs={jobs} />
+          )}
+
+        </div>
+      </div>
+
+      {/* ══ DETAIL PANEL ══ */}
+      {dc&&(
+        <div style={{position:"fixed",inset:0,zIndex:200,display:"flex"}}>
+          <div style={{flex:1,background:"rgba(0,0,0,.3)"}} onClick={()=>setDetailId(null)}/>
+          <div style={{width:"min(460px,100%)",background:"#fff",borderLeft:"1px solid #E5E7EB",overflowY:"auto"}}>
+            <div style={{padding:"20px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                  <Avatar url={dc.photo_url} name={dc.name} size={46}/>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:16}}>{dc.name}</div>
+                    <div style={{fontSize:12,color:"#6B7280"}}>{dc.trade} · {djob?.client||"Unassigned"}</div>
+                    <div style={{marginTop:5}}><StagePill stageId={dc.stage}/></div>
+                  </div>
+                </div>
+                <button style={btn({padding:"5px 11px",fontSize:12})} onClick={()=>setDetailId(null)}>✕</button>
+              </div>
+              <div style={{display:"flex",gap:6,marginTop:14,flexWrap:"wrap"}}>
+                {["overview","process","documents","stage","notes"].map(t=>(
+                  <button key={t} style={{...btn({padding:"5px 12px",fontSize:12}),background:dtab===t?"#EEF2FF":"#fff",color:dtab===t?"#6366F1":"#6B7280",borderColor:dtab===t?"#C7D2FE":"#E5E7EB",fontWeight:dtab===t?600:400}} onClick={()=>setDtab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{padding:"18px 22px"}}>
+              {dtab==="overview"&&(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  {[["CNIC",dc.cnic],["Phone",dc.phone],["Father's Name",dc.father_name],["Experience",dc.experience?dc.experience+" years":"—"],["Job Order",djob?.ref||"Unassigned"],["Client",djob?.client||"—"],["Passport",dc.passport],["Pass. Expiry",fmtDate(dc.passport_expiry)]].map(([k,v])=>(
+                    <div key={k} style={{background:"#F9FAFB",borderRadius:8,padding:"10px 12px"}}>
+                      <div style={{fontSize:11,color:"#9CA3AF",textTransform:"uppercase"}}>{k}</div>
+                      <div style={{fontSize:13,fontWeight:600}}>{v||"—"}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {dtab==="process"&&(
+                <div>
+                  {[
+                    ["Offer Letter","offer_letter"],["Contract Signed","contract"],
+                    ["Electronic No. (Muqeem/MOFA)","electronic_no",1],["Visa Auth. Date","visa_auth_date",1],
+                    ["Visa No.","visa_no",1],["Visa Issue Date","visa_issue_date",1],
+                    ["Medical (GAMCA)","medical_status"],["Medical Date","medical_date",1],["Medical Expiry","medical_expiry",1],
+                    ["Trade Test (Takamol)","trade_test_status"],["Trade Test Date","trade_test_date",1],
+                    ["Passport Sub. Status","pp_sub_status",1],["PP Submission Date","pp_sub_date",1],
+                    ["Dispatch Date","pp_dispatch_date",1],["Received by Embassy","pp_received_date",1],
+                    ["Visa Stamping Date","stamping_date",1],["BEOE / Protector","beoe_status"],
+                    ["BEOE Permission No.","beoe_permission_no",1],["BEOE Registration No.","beoe_registration_no",1],
+                    ["BEOE Fee Paid","beoe_fee_paid",1],["Flight Date","flight_date",1],["Objection","objection",1],
+                  ].map(([label,key,isText])=>(
+                    <div key={key} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #F9FAFB"}}>
+                      <span style={{fontSize:12,color:"#6B7280"}}>{label}</span>
+                      <span style={{fontSize:12,fontWeight:600,color:key==="objection"&&dc[key]?"#EF4444":"#111827"}}>{isText?(dc[key]?fmtDate(dc[key])||dc[key]:"—"):<Dot val={dc[key]}/>}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {dtab==="documents"&&(
+                <div>
+                  {[["Passport Number",dc.passport],["Photo",dc.photo_url],["CV File",dc.cv_url],["Offer Letter",dc.offer_letter],["Contract",dc.contract],["Medical Clearance",dc.medical_status],["Visa Number",dc.visa_no],["Stamping",dc.stamping_date]].map(([label,val])=>(
+                    <div key={label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #F9FAFB"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13}}><span style={{width:10,height:10,borderRadius:"50%",background:val?"#10B981":"#EF4444"}}/>{label}</div>
+                      {label==="CV File"&&val ? <a href={val} target="_blank" rel="noreferrer" style={{fontSize:12,color:"#6366F1"}}>View CV</a> : <span style={{fontSize:12,color:"#374151"}}>{val&&label!=="Photo"?val:val?"Uploaded":"Missing"}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {dtab==="stage"&&(
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {STAGES.map(s=>{
+                    const active=dc.stage===s.id;
+                    return <button key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:8,border:active?`2px solid ${s.color}`:"1px solid #E5E7EB",background:active?`${s.color}10`:"#fff",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}} onClick={()=>moveStage(dc.id,s.id)}>
+                      <span style={{width:10,height:10,borderRadius:"50%",background:s.color}}/>
+                      <span style={{fontSize:13,fontWeight:active?700:400,color:active?s.color:"#374151"}}>{s.label}</span>
+                      {active&&<span style={{marginLeft:"auto",fontSize:11,color:s.color,fontWeight:600}}>CURRENT</span>}
+                    </button>;
+                  })}
+                </div>
+              )}
+              {dtab==="notes"&&(
+                <div>
+                  <div style={{fontSize:12,color:"#6B7280",marginBottom:8}}>Internal remarks</div>
+                  <textarea defaultValue={dc.remarks||""} onBlur={async e=>{ await supabase.from("candidates").update({remarks:e.target.value}).eq("id",dc.id); fetchAll(); }} style={{...inp,minHeight:100,resize:"vertical",marginBottom:14}} />
+                  <div style={{fontSize:12,color:"#6B7280",marginBottom:8}}>Objection (if any)</div>
+                  <textarea defaultValue={dc.objection||""} onBlur={async e=>{ await supabase.from("candidates").update({objection:e.target.value}).eq("id",dc.id); fetchAll(); }} style={{...inp,minHeight:70,resize:"vertical",borderColor:"#FEE2E2"}} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ CANDIDATE MODAL ══ */}
+      <Modal id="cand" title={editId?"Edit Candidate":"Add New Candidate"} wide={640}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
+          <FR label="Full Name *"><input style={inp} value={cf.name} onChange={e=>setCf(f=>({...f,name:e.target.value}))} /></FR>
+          <FR label="Father's Name"><input style={inp} value={cf.father_name} onChange={e=>setCf(f=>({...f,father_name:e.target.value}))} /></FR>
+          <FR label="CNIC"><input style={inp} value={cf.cnic} onChange={e=>setCf(f=>({...f,cnic:e.target.value}))} /></FR>
+          <FR label="Phone"><input style={inp} value={cf.phone} onChange={e=>setCf(f=>({...f,phone:e.target.value}))} /></FR>
+          <FR label="Trade / Position *"><input style={inp} value={cf.trade} onChange={e=>setCf(f=>({...f,trade:e.target.value}))} /></FR>
+          <FR label="Passport No."><input style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
+          <FR label="Passport Expiry"><input style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
+          <FR label="Stage"><select style={inp} value={cf.stage} onChange={e=>setCf(f=>({...f,stage:e.target.value}))}>{STAGES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></FR>
+          <FR label="Job Order"><select style={inp} value={cf.job_id||""} onChange={e=>setCf(f=>({...f,job_id:e.target.value||null}))}><option value="">— Unassigned —</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client}</option>)}</select></FR>
+
+          <FR label="Offer Letter"><select style={inp} value={cf.offer_letter} onChange={e=>setCf(f=>({...f,offer_letter:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
+          <FR label="Contract Signed"><select style={inp} value={cf.contract} onChange={e=>setCf(f=>({...f,contract:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
+          <FR label="Electronic No. (Muqeem)"><input style={inp} value={cf.electronic_no} onChange={e=>setCf(f=>({...f,electronic_no:e.target.value}))} /></FR>
+          <FR label="Visa Auth. Date"><input style={inp} type="date" value={cf.visa_auth_date} onChange={e=>setCf(f=>({...f,visa_auth_date:e.target.value}))} /></FR>
+          <FR label="Visa No."><input style={inp} value={cf.visa_no} onChange={e=>setCf(f=>({...f,visa_no:e.target.value}))} /></FR>
+          <FR label="Visa Issue Date"><input style={inp} type="date" value={cf.visa_issue_date} onChange={e=>setCf(f=>({...f,visa_issue_date:e.target.value}))} /></FR>
+          <FR label="Medical (GAMCA)"><select style={inp} value={cf.medical_status} onChange={e=>setCf(f=>({...f,medical_status:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
+          <FR label="Medical Date"><input style={inp} type="date" value={cf.medical_date} onChange={e=>setCf(f=>({...f,medical_date:e.target.value}))} /></FR>
+          <FR label="Medical Expiry"><input style={inp} type="date" value={cf.medical_expiry} onChange={e=>setCf(f=>({...f,medical_expiry:e.target.value}))} /></FR>
+          <FR label="Trade Test (Takamol)"><select style={inp} value={cf.trade_test_status} onChange={e=>setCf(f=>({...f,trade_test_status:e.target.value}))}>{TRADE_TEST_OPTS.map(v=><option key={v}>{v}</option>)}</select></FR>
+          <FR label="Trade Test Date"><input style={inp} type="date" value={cf.trade_test_date} onChange={e=>setCf(f=>({...f,trade_test_date:e.target.value}))} /></FR>
+          <FR label="Passport Submission"><select style={inp} value={cf.pp_sub_status} onChange={e=>setCf(f=>({...f,pp_sub_status:e.target.value}))}>{PP_STATUSES.map(v=><option key={v}>{v}</option>)}</select></FR>
+          <FR label="PP Submission Date"><input style={inp} type="date" value={cf.pp_sub_date} onChange={e=>setCf(f=>({...f,pp_sub_date:e.target.value}))} /></FR>
+          <FR label="Dispatch Date"><input style={inp} type="date" value={cf.pp_dispatch_date} onChange={e=>setCf(f=>({...f,pp_dispatch_date:e.target.value}))} /></FR>
+          <FR label="Received by Embassy"><input style={inp} type="date" value={cf.pp_received_date} onChange={e=>setCf(f=>({...f,pp_received_date:e.target.value}))} /></FR>
+          <FR label="Visa Stamping Date"><input style={inp} type="date" value={cf.stamping_date} onChange={e=>setCf(f=>({...f,stamping_date:e.target.value}))} /></FR>
+          <FR label="BEOE / Protector"><select style={inp} value={cf.beoe_status} onChange={e=>setCf(f=>({...f,beoe_status:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
+          <FR label="BEOE Permission No."><input style={inp} value={cf.beoe_permission_no} onChange={e=>setCf(f=>({...f,beoe_permission_no:e.target.value}))} /></FR>
+          <FR label="BEOE Registration No."><input style={inp} value={cf.beoe_registration_no} onChange={e=>setCf(f=>({...f,beoe_registration_no:e.target.value}))} /></FR>
+          <FR label="BEOE Fee Paid"><input style={inp} value={cf.beoe_fee_paid} onChange={e=>setCf(f=>({...f,beoe_fee_paid:e.target.value}))} placeholder="Yes/No/Pending" /></FR>
+          <FR label="Flight Date"><input style={inp} type="date" value={cf.flight_date} onChange={e=>setCf(f=>({...f,flight_date:e.target.value}))} /></FR>
+          <FR label="Objection (if any)" span><input style={{...inp,borderColor:"#FEE2E2"}} value={cf.objection} onChange={e=>setCf(f=>({...f,objection:e.target.value}))} /></FR>
+          <FR label="Remarks" span><textarea style={{...inp,minHeight:60,resize:"vertical"}} value={cf.remarks} onChange={e=>setCf(f=>({...f,remarks:e.target.value}))} /></FR>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
+          <button style={btn()} onClick={()=>setModal(null)}>Cancel</button>
+          <button style={pri} onClick={saveCand}>{editId?"Save Changes":"Add Candidate"}</button>
+        </div>
+      </Modal>
+
+      {/* ══ JOB MODAL ══ */}
+      <Modal id="job" title="New Job Order">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
+          <FR label="Order Reference *"><input style={inp} value={jf.ref} onChange={e=>setJf(f=>({...f,ref:e.target.value}))} /></FR>
+          <FR label="Client / Company *"><input style={inp} value={jf.client} onChange={e=>setJf(f=>({...f,client:e.target.value}))} /></FR>
+          <FR label="Country"><select style={inp} value={jf.country} onChange={e=>setJf(f=>({...f,country:e.target.value}))}>{COUNTRIES.map(c=><option key={c}>{c}</option>)}</select></FR>
+          <FR label="City"><input style={inp} value={jf.city} onChange={e=>setJf(f=>({...f,city:e.target.value}))} /></FR>
+          <FR label="Position / Trade *"><input style={inp} value={jf.position} onChange={e=>setJf(f=>({...f,position:e.target.value}))} /></FR>
+          <FR label="Vacancies"><input style={inp} type="number" min="1" value={jf.vacancies} onChange={e=>setJf(f=>({...f,vacancies:e.target.value}))} /></FR>
+          <FR label="Salary (SAR)"><input style={inp} value={jf.salary} onChange={e=>setJf(f=>({...f,salary:e.target.value}))} /></FR>
+          <FR label="Deadline"><input style={inp} type="date" value={jf.deadline} onChange={e=>setJf(f=>({...f,deadline:e.target.value}))} /></FR>
+          <FR label="Status"><select style={inp} value={jf.status} onChange={e=>setJf(f=>({...f,status:e.target.value}))}><option>Open</option><option>Filled</option><option>Closed</option></select></FR>
+          <FR label="Contact Person"><input style={inp} value={jf.contact} onChange={e=>setJf(f=>({...f,contact:e.target.value}))} /></FR>
+          <FR label="Notes" span><textarea style={{...inp,minHeight:55,resize:"vertical"}} value={jf.notes} onChange={e=>setJf(f=>({...f,notes:e.target.value}))} /></FR>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
+          <button style={btn()} onClick={()=>setModal(null)}>Cancel</button>
+          <button style={pri} onClick={saveJob}>Create Job Order</button>
+        </div>
+      </Modal>
+
+      <style>{`
+        @media (max-width: 768px) {
+          .sidebar { display: none !important; }
+          .mobile-only { display: flex !important; }
+          .main-content { margin-top: 56px; }
+          .stat-grid { grid-template-columns: 1fr 1fr !important; }
+          .dash-grid { grid-template-columns: 1fr !important; }
+          .job-grid { grid-template-columns: 1fr !important; }
+          .modal-grid { grid-template-columns: 1fr !important; }
+          .content-padding { padding: 14px !important; }
+          .desktop-header { padding: 12px 16px !important; }
+        }
+        @media (min-width: 769px) {
+          .sidebar.show-mobile { position: sticky !important; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── STAFF MANAGEMENT (Admin only) ────────────────────────────────────────────
+function StaffManagement({ S, inp, btn, pri, jobs }) {
+  const [staff, setStaff] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const clientNames = [...new Set(jobs.map(j=>j.client))];
+
+  const fetchStaff = useCallback(async () => {
+    const { data } = await supabase.from("profiles").select("*").order("created_at");
+    setStaff(data||[]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchStaff(); }, [fetchStaff]);
+
+  const updateRole = async (id, role) => {
+    await supabase.from("profiles").update({ role }).eq("id", id);
+    fetchStaff();
+  };
+
+  const toggleClient = async (id, client, current) => {
+    const list = current || [];
+    const updated = list.includes(client) ? list.filter(c=>c!==client) : [...list, client];
+    await supabase.from("profiles").update({ assigned_clients: updated }).eq("id", id);
+    fetchStaff();
+  };
+
+  if (loading) return <div style={{color:"#9CA3AF"}}>Loading staff…</div>;
+
+  return (
+    <div>
+      <div style={{ background:"#EEF2FF", border:"1px solid #C7D2FE", borderRadius:12, padding:"14px 18px", marginBottom:18 }}>
+        <div style={{ fontWeight:700, fontSize:14, color:"#3730A3" }}>🔑 Staff Access ({staff.length} accounts)</div>
+        <div style={{ fontSize:12, color:"#4338CA", marginTop:4 }}>Staff create their own accounts via the "New Staff Account" tab on the login screen. As Admin, you assign roles here. Admin: full access. Manager: limited to assigned clients. Staff: data entry, no delete.</div>
+      </div>
+      <div style={S.card}>
+        <table style={{ width:"100%", borderCollapse:"collapse" }}>
+          <thead><tr>{["Name","Role","Client Access (Managers only)"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {staff.map(s=>(
+              <tr key={s.id}>
+                <td style={S.td}>{s.full_name}</td>
+                <td style={S.td}>
+                  <select style={{ ...inp, width:"auto" }} value={s.role} onChange={e=>updateRole(s.id, e.target.value)}>
+                    <option value="admin">Admin</option><option value="manager">Manager</option><option value="staff">Staff</option>
+                  </select>
+                </td>
+                <td style={S.td}>
+                  {s.role==="manager" ? (
+                    <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      {clientNames.map(c=>(
+                        <button key={c} style={{ ...btn({ padding:"3px 9px", fontSize:11 }), background:(s.assigned_clients||[]).includes(c)?"#EEF2FF":"#fff", color:(s.assigned_clients||[]).includes(c)?"#6366F1":"#9CA3AF", borderColor:(s.assigned_clients||[]).includes(c)?"#C7D2FE":"#E5E7EB" }}
+                          onClick={()=>toggleClient(s.id, c, s.assigned_clients)}>{c}</button>
+                      ))}
+                    </div>
+                  ) : <span style={{ fontSize:12, color:"#9CA3AF" }}>{s.role==="admin"?"All clients":"N/A"}</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
