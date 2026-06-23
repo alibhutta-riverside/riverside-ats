@@ -31,6 +31,12 @@ export default function ClientDetail({ clientId, currentUser, onBack }) {
     load();
   }
 
+  async function deleteClient() {
+    if (!window.confirm(`Delete ${client.company_name}? This removes all contact history too. This cannot be undone.`)) return;
+    await supabase.from('clients').delete().eq('id', clientId);
+    onBack();
+  }
+
   const inp = { padding: "8px 11px", border: "1px solid #E5E7EB", borderRadius: 8, fontSize: 13, width: "100%", fontFamily: "inherit", outline: "none", marginBottom: 8 };
   const btn = (extra = {}) => ({ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 13, color: "#374151", fontFamily: "inherit", ...extra });
 
@@ -38,7 +44,10 @@ export default function ClientDetail({ clientId, currentUser, onBack }) {
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 13, cursor: "pointer", marginBottom: 12, padding: 0 }}>← Back</button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 13, cursor: "pointer", padding: 0 }}>← Back</button>
+        <button onClick={deleteClient} style={{ background: "none", border: "1px solid #FEE2E2", color: "#EF4444", fontSize: 12, cursor: "pointer", padding: "5px 10px", borderRadius: 6 }}>Delete Client</button>
+      </div>
 
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 700, fontSize: 16 }}>{client.company_name}</div>

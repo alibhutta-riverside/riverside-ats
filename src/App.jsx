@@ -7,6 +7,7 @@ import CrmDashboard from "./crm/CrmDashboard";
 import ClientList from "./crm/ClientList";
 import ClientDetail from "./crm/ClientDetail";
 import CampaignManager from "./crm/CampaignManager";
+import CrmReports from "./crm/CrmReports";
 import * as XLSX from "xlsx";
 
 // ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
@@ -583,8 +584,8 @@ export default function App() {
           {/* ══ CRM ══ */}
           {page==="crm"&&(
             <div>
-              <div style={{display:"flex",gap:8,marginBottom:16}}>
-                {["dashboard","clients","campaigns"].map(v=>(
+              <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+                {["dashboard","clients","campaigns","reports"].map(v=>(
                   <button key={v} style={btn({background:crmView===v?"#6366F1":"#fff",color:crmView===v?"#fff":"#374151"})}
                     onClick={()=>{setCrmView(v);setCrmClientId(null);}}>
                     {v.charAt(0).toUpperCase()+v.slice(1)}
@@ -592,11 +593,12 @@ export default function App() {
                 ))}
               </div>
               {crmView==="dashboard" && <CrmDashboard currentUser={profile} />}
-              {crmView==="clients" && !crmClientId && <ClientList onSelectClient={setCrmClientId} />}
+              {crmView==="clients" && !crmClientId && <ClientList onSelectClient={setCrmClientId} currentUser={profile} />}
               {crmView==="clients" && crmClientId && (
                 <ClientDetail clientId={crmClientId} currentUser={profile} onBack={()=>setCrmClientId(null)} />
               )}
               {crmView==="campaigns" && <CampaignManager currentUser={profile} />}
+              {crmView==="reports" && <CrmReports />}
             </div>
           )}
 
@@ -816,6 +818,33 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
     fetchStaff();
   };
 
+  const deleteStaff = async (id, name) => {
+    if (!window.confirm(`Delete ${name}'s account? This cannot be undone.`)) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ action: "delete", userId: id, requesterId: session?.user?.id }),
+    });
+    const result = await res.json();
+    if (result.error) { alert(result.error); return; }
+    fetchStaff();
+  };
+
+  const editStaffEmail = async (id, currentEmail) => {
+    const newEmail = window.prompt("Enter corrected email address:", currentEmail);
+    if (!newEmail || newEmail === currentEmail) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ action: "update_email", userId: id, newEmail, requesterId: session?.user?.id }),
+    });
+    const result = await res.json();
+    if (result.error) { alert(result.error); return; }
+    fetchStaff();
+  };
+
   const toggleClient = async (id, client, current) => {
     const list = current || [];
     const updated = list.includes(client) ? list.filter(c=>c!==client) : [...list, client];
@@ -904,7 +933,7 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
 
       <div style={S.card}>
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead><tr>{["Name","Email","Role","Client Access (Managers only)"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Name","Email","Role","Client Access (Managers only)","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {staff.map(s=>(
               <tr key={s.id}>
@@ -924,6 +953,12 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
                       ))}
                     </div>
                   ) : <span style={{ fontSize:12, color:"#9CA3AF" }}>{s.role==="admin"?"All clients":"N/A"}</span>}
+                </td>
+                <td style={S.td}>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button style={btn({padding:"4px 10px",fontSize:11})} onClick={()=>editStaffEmail(s.id, s.email)}>Edit Email</button>
+                    <button style={btn({padding:"4px 10px",fontSize:11,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>deleteStaff(s.id, s.full_name)}>Delete</button>
+                  </div>
                 </td>
               </tr>
             ))}
