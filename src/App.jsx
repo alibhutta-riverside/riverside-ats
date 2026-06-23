@@ -867,22 +867,20 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
     setCreatingStaff(true);
 
     try {
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: newStaffEmail,
-        password: newStaffPassword,
-        options: { data: { full_name: newStaffName } }
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          action: "create",
+          email: newStaffEmail,
+          password: newStaffPassword,
+          fullName: newStaffName,
+          requesterId: session?.user?.id,
+        }),
       });
-
-      if (authError) { alert(authError.message); setCreatingStaff(false); return; }
-
-      // Update profile with name (profile auto-created by trigger)
-      if (authData.user) {
-        await supabase.from("profiles").update({
-          full_name: newStaffName,
-          role: "staff"
-        }).eq("id", authData.user.id);
-      }
+      const result = await res.json();
+      if (result.error) { alert(result.error); setCreatingStaff(false); return; }
 
       setCreatedMessage(`✓ Account created! Email: ${newStaffEmail} | Password: ${newStaffPassword}`);
       setNewStaffEmail("");
