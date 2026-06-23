@@ -123,9 +123,9 @@ export default function App() {
   const [stageFil, setStageFil] = useState("");
   const [jobFil, setJobFil] = useState("");
   const [detailId, setDetailId] = useState(null);
- const [crmView, setCrmView] = useState("dashboard"); // 'dashboard' | 'clients' | 'campaigns'
-const [crmClientId, setCrmClientId] = useState(null); 
-const [dtab, setDtab] = useState("overview");
+  const [crmView, setCrmView] = useState("dashboard"); // 'dashboard' | 'clients' | 'campaigns'
+  const [crmClientId, setCrmClientId] = useState(null);
+  const [dtab, setDtab] = useState("overview");
   const [rptJob, setRptJob] = useState("");
   const [waText, setWaText] = useState("");
   const [copied, setCopied] = useState(false);
@@ -314,8 +314,8 @@ const [dtab, setDtab] = useState("overview");
           <NavItem p="jobs" icon="📋" label="Job Orders"/>
           <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
           <NavItem p="reports" icon="📄" label="Status Reports"/>
-<div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Sales</div>
-<NavItem p="crm" icon="📞" label="Client CRM"/>
+          <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Sales</div>
+          <NavItem p="crm" icon="📞" label="Client CRM"/>
           {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
@@ -579,25 +579,27 @@ const [dtab, setDtab] = useState("overview");
               )}
             </div>
           )}
-{/* ══ CRM ══ */}
-{page==="crm"&&(
-  <div>
-    <div style={{display:"flex",gap:8,marginBottom:16}}>
-      {["dashboard","clients","campaigns"].map(v=>(
-        <button key={v} style={btn({background:crmView===v?"#6366F1":"#fff",color:crmView===v?"#fff":"#374151"})}
-          onClick={()=>{setCrmView(v);setCrmClientId(null);}}>
-          {v.charAt(0).toUpperCase()+v.slice(1)}
-        </button>
-      ))}
-    </div>
-    {crmView==="dashboard" && <CrmDashboard currentUser={profile} />}
-    {crmView==="clients" && !crmClientId && <ClientList onSelectClient={setCrmClientId} />}
-    {crmView==="clients" && crmClientId && (
-      <ClientDetail clientId={crmClientId} currentUser={profile} onBack={()=>setCrmClientId(null)} />
-    )}
-    {crmView==="campaigns" && <CampaignManager currentUser={profile} />}
-  </div>
-)}
+
+          {/* ══ CRM ══ */}
+          {page==="crm"&&(
+            <div>
+              <div style={{display:"flex",gap:8,marginBottom:16}}>
+                {["dashboard","clients","campaigns"].map(v=>(
+                  <button key={v} style={btn({background:crmView===v?"#6366F1":"#fff",color:crmView===v?"#fff":"#374151"})}
+                    onClick={()=>{setCrmView(v);setCrmClientId(null);}}>
+                    {v.charAt(0).toUpperCase()+v.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {crmView==="dashboard" && <CrmDashboard currentUser={profile} />}
+              {crmView==="clients" && !crmClientId && <ClientList onSelectClient={setCrmClientId} />}
+              {crmView==="clients" && crmClientId && (
+                <ClientDetail clientId={crmClientId} currentUser={profile} onBack={()=>setCrmClientId(null)} />
+              )}
+              {crmView==="campaigns" && <CampaignManager currentUser={profile} />}
+            </div>
+          )}
+
           {/* ══ STAFF ACCESS (admin only) ══ */}
           {page==="staff"&&profile.role==="admin"&&(
             <StaffManagement S={S} inp={inp} btn={btn} pri={pri} jobs={jobs} />
@@ -834,7 +836,7 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
       return;
     }
     setCreatingStaff(true);
-    
+
     try {
       // Create auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -842,14 +844,14 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
         password: newStaffPassword,
         options: { data: { full_name: newStaffName } }
       });
-      
+
       if (authError) { alert(authError.message); setCreatingStaff(false); return; }
 
       // Update profile with name (profile auto-created by trigger)
       if (authData.user) {
-        await supabase.from("profiles").update({ 
+        await supabase.from("profiles").update({
           full_name: newStaffName,
-          role: "staff" 
+          role: "staff"
         }).eq("id", authData.user.id);
       }
 
@@ -857,7 +859,7 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
       setNewStaffEmail("");
       setNewStaffName("");
       setNewStaffPassword("");
-      
+
       setTimeout(() => {
         setCreatedMessage("");
         setShowCreateForm(false);
