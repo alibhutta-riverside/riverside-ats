@@ -3,6 +3,10 @@ import { supabase } from "./lib/supabase";
 import { STAGES, STAGE_MAP, COUNTRIES, YNP, PP_STATUSES, TRADE_TEST_OPTS, EMPTY_CAND, EMPTY_JOB, uid, fmtDate, today, todayISO, daysUntil, sanitizeForDb } from "./lib/constants";
 import Login from "./components/Login";
 import Databank from "./components/Databank";
+import CrmDashboard from "./crm/CrmDashboard";
+import ClientList from "./crm/ClientList";
+import ClientDetail from "./crm/ClientDetail";
+import CampaignManager from "./crm/CampaignManager";
 import * as XLSX from "xlsx";
 
 // ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
@@ -119,7 +123,9 @@ export default function App() {
   const [stageFil, setStageFil] = useState("");
   const [jobFil, setJobFil] = useState("");
   const [detailId, setDetailId] = useState(null);
-  const [dtab, setDtab] = useState("overview");
+ const [crmView, setCrmView] = useState("dashboard"); // 'dashboard' | 'clients' | 'campaigns'
+const [crmClientId, setCrmClientId] = useState(null); 
+const [dtab, setDtab] = useState("overview");
   const [rptJob, setRptJob] = useState("");
   const [waText, setWaText] = useState("");
   const [copied, setCopied] = useState(false);
@@ -278,15 +284,18 @@ export default function App() {
     <div style={{display:"flex",minHeight:"100vh",fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",background:"#F9FAFB",fontSize:14,color:"#111827"}}>
 
       {/* MOBILE HEADER */}
-      <div className="mobile-only" style={{display:"none",position:"fixed",top:0,left:0,right:0,height:56,background:"#fff",borderBottom:"1px solid #E5E7EB",alignItems:"center",justifyContent:"space-between",padding:"0 16px",zIndex:150}}>
+      <div className="mobile-only" style={{display:"flex",position:"fixed",top:0,left:0,right:0,height:56,background:"#fff",borderBottom:"1px solid #E5E7EB",alignItems:"center",justifyContent:"space-between",padding:"0 16px",zIndex:150}}>
         <button onClick={()=>setMobileNavOpen(!mobileNavOpen)} style={{ background:"none",border:"none",fontSize:22,cursor:"pointer" }}>☰</button>
         <div style={{ fontWeight:700, fontSize:15 }}>Riverside ATS</div>
         <div style={{ width:30 }}/>
       </div>
 
+      {/* MOBILE BACKDROP */}
+      {mobileNavOpen && <div onClick={()=>setMobileNavOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:99}}/>}
+
       {/* SIDEBAR */}
-      <div className="sidebar" style={{width:220,background:"#fff",borderRight:"1px solid #E5E7EB",display:"flex",flexDirection:"column",flexShrink:0,position:"sticky",top:0,height:"100vh",overflowY:"auto",zIndex:100,
-        ...(mobileNavOpen ? {position:"fixed",left:0,top:0} : {})}}>
+      <div className="sidebar" data-open={mobileNavOpen} style={{width:220,background:"#fff",borderRight:"1px solid #E5E7EB",display:"flex",flexDirection:"column",flexShrink:0,position:"sticky",top:0,height:"100vh",overflowY:"auto",zIndex:100,
+        ...(mobileNavOpen ? {position:"fixed",left:0,top:56,height:"calc(100vh - 56px)",display:"flex"} : {})}}>
         <div style={{padding:"20px 16px 12px"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{width:34,height:34,borderRadius:10,background:"linear-gradient(135deg,#6366F1,#8B5CF6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,fontWeight:700,flexShrink:0}}>R</div>
@@ -305,6 +314,8 @@ export default function App() {
           <NavItem p="jobs" icon="📋" label="Job Orders"/>
           <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
           <NavItem p="reports" icon="📄" label="Status Reports"/>
+<div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Sales</div>
+<NavItem p="crm" icon="📞" label="Client CRM"/>
           {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
@@ -322,7 +333,7 @@ export default function App() {
           <div>
             <div style={{fontWeight:700,fontSize:16}}>
               {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="candidates"&&"In-Process Candidates"}
-              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="staff"&&"Staff Access Management"}
+              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"Client CRM"}{page==="staff"&&"Staff Access Management"}
             </div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
           </div>
@@ -568,7 +579,25 @@ export default function App() {
               )}
             </div>
           )}
-
+{/* ══ CRM ══ */}
+{page==="crm"&&(
+  <div>
+    <div style={{display:"flex",gap:8,marginBottom:16}}>
+      {["dashboard","clients","campaigns"].map(v=>(
+        <button key={v} style={btn({background:crmView===v?"#6366F1":"#fff",color:crmView===v?"#fff":"#374151"})}
+          onClick={()=>{setCrmView(v);setCrmClientId(null);}}>
+          {v.charAt(0).toUpperCase()+v.slice(1)}
+        </button>
+      ))}
+    </div>
+    {crmView==="dashboard" && <CrmDashboard currentUser={profile} />}
+    {crmView==="clients" && !crmClientId && <ClientList onSelectClient={setCrmClientId} />}
+    {crmView==="clients" && crmClientId && (
+      <ClientDetail clientId={crmClientId} currentUser={profile} onBack={()=>setCrmClientId(null)} />
+    )}
+    {crmView==="campaigns" && <CampaignManager currentUser={profile} />}
+  </div>
+)}
           {/* ══ STAFF ACCESS (admin only) ══ */}
           {page==="staff"&&profile.role==="admin"&&(
             <StaffManagement S={S} inp={inp} btn={btn} pri={pri} jobs={jobs} />
@@ -579,34 +608,34 @@ export default function App() {
 
       {/* ══ DETAIL PANEL ══ */}
       {dc&&(
-        <div style={{position:"fixed",inset:0,zIndex:200,display:"flex"}}>
-          <div style={{flex:1,background:"rgba(0,0,0,.3)"}} onClick={()=>setDetailId(null)}/>
-          <div style={{width:"min(460px,100%)",background:"#fff",borderLeft:"1px solid #E5E7EB",overflowY:"auto"}}>
-            <div style={{padding:"20px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                  <Avatar url={dc.photo_url} name={dc.name} size={46}/>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:16}}>{dc.name}</div>
-                    <div style={{fontSize:12,color:"#6B7280"}}>{dc.trade} · {djob?.client||"Unassigned"}</div>
-                    <div style={{marginTop:5}}><StagePill stageId={dc.stage}/></div>
+        <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",flexDirection:"column",background:"rgba(0,0,0,.3)",width:"100vw",height:"100vh"}}>
+          <div style={{flex:1,background:"rgba(0,0,0,.3)",display:"none"}} onClick={()=>setDetailId(null)}/>
+          <div style={{width:"100%",maxWidth:"460px",marginLeft:"auto",background:"#fff",borderLeft:"1px solid #E5E7EB",overflowY:"auto",maxHeight:"100vh",display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"16px 18px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1,flexShrink:0}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{display:"flex",gap:10,alignItems:"flex-start",minWidth:0,flex:1}}>
+                  <Avatar url={dc.photo_url} name={dc.name} size={40}/>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontWeight:700,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dc.name}</div>
+                    <div style={{fontSize:12,color:"#6B7280",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dc.trade}</div>
+                    <div style={{marginTop:4}}><StagePill stageId={dc.stage}/></div>
                   </div>
                 </div>
-                <button style={btn({padding:"5px 11px",fontSize:12})} onClick={()=>setDetailId(null)}>✕</button>
+                <button style={btn({padding:"6px 10px",fontSize:12,flexShrink:0})} onClick={()=>setDetailId(null)}>✕</button>
               </div>
-              <div style={{display:"flex",gap:6,marginTop:14,flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:6,marginTop:12,flexWrap:"wrap"}}>
                 {["overview","process","documents","stage","notes"].map(t=>(
-                  <button key={t} style={{...btn({padding:"5px 12px",fontSize:12}),background:dtab===t?"#EEF2FF":"#fff",color:dtab===t?"#6366F1":"#6B7280",borderColor:dtab===t?"#C7D2FE":"#E5E7EB",fontWeight:dtab===t?600:400}} onClick={()=>setDtab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
+                  <button key={t} style={{...btn({padding:"5px 10px",fontSize:11}),background:dtab===t?"#EEF2FF":"#fff",color:dtab===t?"#6366F1":"#6B7280",borderColor:dtab===t?"#C7D2FE":"#E5E7EB",fontWeight:dtab===t?600:400,flex:1}} onClick={()=>setDtab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
                 ))}
               </div>
             </div>
-            <div style={{padding:"18px 22px"}}>
+            <div style={{padding:"14px 16px",flex:1,overflowY:"auto"}}>
               {dtab==="overview"&&(
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10}}>
                   {[["CNIC",dc.cnic],["Phone",dc.phone],["Father's Name",dc.father_name],["Experience",dc.experience?dc.experience+" years":"—"],["Job Order",djob?.ref||"Unassigned"],["Client",djob?.client||"—"],["Passport",dc.passport],["Pass. Expiry",fmtDate(dc.passport_expiry)]].map(([k,v])=>(
-                    <div key={k} style={{background:"#F9FAFB",borderRadius:8,padding:"10px 12px"}}>
-                      <div style={{fontSize:11,color:"#9CA3AF",textTransform:"uppercase"}}>{k}</div>
-                      <div style={{fontSize:13,fontWeight:600}}>{v||"—"}</div>
+                    <div key={k} style={{background:"#F9FAFB",borderRadius:8,padding:"9px 11px"}}>
+                      <div style={{fontSize:11,color:"#9CA3AF",textTransform:"uppercase",marginBottom:2}}>{k}</div>
+                      <div style={{fontSize:12,fontWeight:600,wordBreak:"break-word"}}>{v||"—"}</div>
                     </div>
                   ))}
                 </div>
@@ -625,9 +654,9 @@ export default function App() {
                     ["BEOE Permission No.","beoe_permission_no",1],["BEOE Registration No.","beoe_registration_no",1],
                     ["BEOE Fee Paid","beoe_fee_paid",1],["Flight Date","flight_date",1],["Objection","objection",1],
                   ].map(([label,key,isText])=>(
-                    <div key={key} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #F9FAFB"}}>
-                      <span style={{fontSize:12,color:"#6B7280"}}>{label}</span>
-                      <span style={{fontSize:12,fontWeight:600,color:key==="objection"&&dc[key]?"#EF4444":"#111827"}}>{isText?(dc[key]?fmtDate(dc[key])||dc[key]:"—"):<Dot val={dc[key]}/>}</span>
+                    <div key={key} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F9FAFB",fontSize:12}}>
+                      <span style={{color:"#6B7280",flex:1}}>{label}</span>
+                      <span style={{fontWeight:600,color:key==="objection"&&dc[key]?"#EF4444":"#111827",textAlign:"right",flex:1,wordBreak:"break-word"}}>{isText?(dc[key]?fmtDate(dc[key])||dc[key]:"—"):<Dot val={dc[key]}/>}</span>
                     </div>
                   ))}
                 </div>
@@ -635,9 +664,9 @@ export default function App() {
               {dtab==="documents"&&(
                 <div>
                   {[["Passport Number",dc.passport],["Photo",dc.photo_url],["CV File",dc.cv_url],["Offer Letter",dc.offer_letter],["Contract",dc.contract],["Medical Clearance",dc.medical_status],["Visa Number",dc.visa_no],["Stamping",dc.stamping_date]].map(([label,val])=>(
-                    <div key={label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #F9FAFB"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13}}><span style={{width:10,height:10,borderRadius:"50%",background:val?"#10B981":"#EF4444"}}/>{label}</div>
-                      {label==="CV File"&&val ? <a href={val} target="_blank" rel="noreferrer" style={{fontSize:12,color:"#6366F1"}}>View CV</a> : <span style={{fontSize:12,color:"#374151"}}>{val&&label!=="Photo"?val:val?"Uploaded":"Missing"}</span>}
+                    <div key={label} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F9FAFB",fontSize:12}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:8,height:8,borderRadius:"50%",background:val?"#10B981":"#EF4444",flexShrink:0}}/><span>{label}</span></div>
+                      {label==="CV File"&&val ? <a href={val} target="_blank" rel="noreferrer" style={{fontSize:12,color:"#6366F1",textDecoration:"none"}}>View</a> : <span style={{fontSize:12,color:"#374151"}}>{val&&label!=="Photo"?val:val?"✓":"✗"}</span>}
                     </div>
                   ))}
                 </div>
@@ -646,20 +675,20 @@ export default function App() {
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {STAGES.map(s=>{
                     const active=dc.stage===s.id;
-                    return <button key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:8,border:active?`2px solid ${s.color}`:"1px solid #E5E7EB",background:active?`${s.color}10`:"#fff",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}} onClick={()=>moveStage(dc.id,s.id)}>
-                      <span style={{width:10,height:10,borderRadius:"50%",background:s.color}}/>
-                      <span style={{fontSize:13,fontWeight:active?700:400,color:active?s.color:"#374151"}}>{s.label}</span>
-                      {active&&<span style={{marginLeft:"auto",fontSize:11,color:s.color,fontWeight:600}}>CURRENT</span>}
+                    return <button key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",borderRadius:8,border:active?`2px solid ${s.color}`:"1px solid #E5E7EB",background:active?`${s.color}10`:"#fff",cursor:"pointer",textAlign:"left",fontFamily:"inherit",fontSize:12}} onClick={()=>moveStage(dc.id,s.id)}>
+                      <span style={{width:8,height:8,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                      <span style={{fontWeight:active?700:400,color:active?s.color:"#374151",flex:1}}>{s.label}</span>
+                      {active&&<span style={{fontSize:10,color:s.color,fontWeight:600,flexShrink:0}}>✓</span>}
                     </button>;
                   })}
                 </div>
               )}
               {dtab==="notes"&&(
                 <div>
-                  <div style={{fontSize:12,color:"#6B7280",marginBottom:8}}>Internal remarks</div>
-                  <textarea defaultValue={dc.remarks||""} onBlur={async e=>{ await supabase.from("candidates").update({remarks:e.target.value}).eq("id",dc.id); fetchAll(); }} style={{...inp,minHeight:100,resize:"vertical",marginBottom:14}} />
-                  <div style={{fontSize:12,color:"#6B7280",marginBottom:8}}>Objection (if any)</div>
-                  <textarea defaultValue={dc.objection||""} onBlur={async e=>{ await supabase.from("candidates").update({objection:e.target.value}).eq("id",dc.id); fetchAll(); }} style={{...inp,minHeight:70,resize:"vertical",borderColor:"#FEE2E2"}} />
+                  <div style={{fontSize:12,color:"#6B7280",marginBottom:6}}>Remarks</div>
+                  <textarea defaultValue={dc.remarks||""} onBlur={async e=>{ await supabase.from("candidates").update({remarks:e.target.value}).eq("id",dc.id); fetchAll(); }} style={{...inp,minHeight:80,resize:"vertical",marginBottom:12,fontSize:12}} />
+                  <div style={{fontSize:12,color:"#6B7280",marginBottom:6}}>Objection</div>
+                  <textarea defaultValue={dc.objection||""} onBlur={async e=>{ await supabase.from("candidates").update({objection:e.target.value}).eq("id",dc.id); fetchAll(); }} style={{...inp,minHeight:60,resize:"vertical",borderColor:"#FEE2E2",fontSize:12}} />
                 </div>
               )}
             </div>
@@ -732,19 +761,28 @@ export default function App() {
       </Modal>
 
       <style>{`
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; overflow-x: hidden; }
         @media (max-width: 768px) {
-          .sidebar { display: none !important; }
+          .sidebar { position: fixed !important; top: 56px !important; left: -220px; transition: left 0.3s ease; width: 220px !important; height: calc(100vh - 56px) !important; z-index: 99; }
+          .sidebar[data-open="true"] { left: 0 !important; }
           .mobile-only { display: flex !important; }
-          .main-content { margin-top: 56px; }
+          .main-content { margin-top: 56px; width: 100vw; overflow-x: hidden; padding: 0; }
           .stat-grid { grid-template-columns: 1fr 1fr !important; }
           .dash-grid { grid-template-columns: 1fr !important; }
           .job-grid { grid-template-columns: 1fr !important; }
           .modal-grid { grid-template-columns: 1fr !important; }
-          .content-padding { padding: 14px !important; }
-          .desktop-header { padding: 12px 16px !important; }
+          .content-padding { padding: 12px 12px !important; }
+          .desktop-header { padding: 12px 12px !important; font-size: 14px; }
+          table { font-size: 12px !important; }
+          table th, table td { padding: 8px 10px !important; }
+          input, select, textarea { font-size: 16px !important; padding: 10px 12px !important; }
+          button { padding: 10px 14px !important; font-size: 13px !important; min-height: 44px; }
         }
         @media (min-width: 769px) {
-          .sidebar.show-mobile { position: sticky !important; }
+          .sidebar { display: flex !important; position: sticky !important; }
+          .sidebar[data-open="true"] { left: 0 !important; }
+          .mobile-only { display: none !important; }
         }
       `}</style>
     </div>
@@ -755,6 +793,12 @@ export default function App() {
 function StaffManagement({ S, inp, btn, pri, jobs }) {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newStaffEmail, setNewStaffEmail] = useState("");
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffPassword, setNewStaffPassword] = useState("");
+  const [createdMessage, setCreatedMessage] = useState("");
+  const [creatingStaff, setCreatingStaff] = useState(false);
   const clientNames = [...new Set(jobs.map(j=>j.client))];
 
   const fetchStaff = useCallback(async () => {
@@ -777,23 +821,95 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
     fetchStaff();
   };
 
+  const generatePassword = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$";
+    let pwd = "";
+    for (let i = 0; i < 12; i++) pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    setNewStaffPassword(pwd);
+  };
+
+  const createStaffAccount = async () => {
+    if (!newStaffEmail.trim() || !newStaffName.trim() || !newStaffPassword.trim()) {
+      alert("Please fill in all fields and generate a password");
+      return;
+    }
+    setCreatingStaff(true);
+    
+    try {
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newStaffEmail,
+        password: newStaffPassword,
+        options: { data: { full_name: newStaffName } }
+      });
+      
+      if (authError) { alert(authError.message); setCreatingStaff(false); return; }
+
+      // Update profile with name (profile auto-created by trigger)
+      if (authData.user) {
+        await supabase.from("profiles").update({ 
+          full_name: newStaffName,
+          role: "staff" 
+        }).eq("id", authData.user.id);
+      }
+
+      setCreatedMessage(`✓ Account created! Email: ${newStaffEmail} | Password: ${newStaffPassword}`);
+      setNewStaffEmail("");
+      setNewStaffName("");
+      setNewStaffPassword("");
+      
+      setTimeout(() => {
+        setCreatedMessage("");
+        setShowCreateForm(false);
+        fetchStaff();
+      }, 3000);
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+    setCreatingStaff(false);
+  };
+
   if (loading) return <div style={{color:"#9CA3AF"}}>Loading staff…</div>;
 
   return (
     <div>
       <div style={{ background:"#EEF2FF", border:"1px solid #C7D2FE", borderRadius:12, padding:"14px 18px", marginBottom:18 }}>
-        <div style={{ fontWeight:700, fontSize:14, color:"#3730A3" }}>🔑 Staff Access ({staff.length} accounts)</div>
-        <div style={{ fontSize:12, color:"#4338CA", marginTop:4 }}>Staff create their own accounts via the "New Staff Account" tab on the login screen. As Admin, you assign roles here. Admin: full access. Manager: limited to assigned clients. Staff: data entry, no delete.</div>
+        <div style={{ fontWeight:700, fontSize:14, color:"#3730A3" }}>🔑 Staff Access Management ({staff.length} accounts)</div>
+        <div style={{ fontSize:12, color:"#4338CA", marginTop:4 }}>You create staff accounts with temporary passwords. Share credentials via WhatsApp. Admin: full access. Manager: limited to assigned clients. Staff: data entry only.</div>
       </div>
+
+      {/* CREATE STAFF FORM */}
+      {showCreateForm && (
+        <div style={{ ...S.card, marginBottom:18, background:"#F0FDF4", borderColor:"#BBF7D0" }}>
+          <div style={{ fontWeight:700, fontSize:13, marginBottom:14, color:"#166534" }}>➕ Add New Staff Member</div>
+          <input style={{ ...inp, marginBottom:10 }} placeholder="Full name" value={newStaffName} onChange={e=>setNewStaffName(e.target.value)} />
+          <input style={{ ...inp, marginBottom:10 }} type="email" placeholder="Email address" value={newStaffEmail} onChange={e=>setNewStaffEmail(e.target.value)} />
+          <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+            <input style={{ ...inp, marginBottom:0, flex:1 }} placeholder="Temporary password" value={newStaffPassword} readOnly />
+            <button style={btn()} onClick={generatePassword}>Generate</button>
+          </div>
+          {createdMessage && <div style={{ background:"#F0FDF4", border:"1px solid #BBF7D0", color:"#166534", borderRadius:8, padding:"10px 12px", fontSize:11, marginBottom:12, wordBreak:"break-all", fontFamily:"monospace" }}>{createdMessage}</div>}
+          <div style={{ display:"flex", gap:8 }}>
+            <button style={pri} onClick={createStaffAccount} disabled={creatingStaff}>{creatingStaff?"Creating…":"Create Account"}</button>
+            <button style={btn()} onClick={()=>setShowCreateForm(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {!showCreateForm && (
+        <button style={{...pri, marginBottom:18}} onClick={()=>{setShowCreateForm(true);setCreatedMessage("")}}>➕ Add New Staff Member</button>
+      )}
+
       <div style={S.card}>
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead><tr>{["Name","Role","Client Access (Managers only)"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Name","Email","Role","Client Access (Managers only)"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {staff.map(s=>(
               <tr key={s.id}>
                 <td style={S.td}>{s.full_name}</td>
+                <td style={{...S.td, fontSize:11, color:"#6B7280"}}>{s.email}</td>
                 <td style={S.td}>
-                  <select style={{ ...inp, width:"auto" }} value={s.role} onChange={e=>updateRole(s.id, e.target.value)}>
+                  <select style={{ ...inp, width:"auto", fontSize:12 }} value={s.role} onChange={e=>updateRole(s.id, e.target.value)}>
                     <option value="admin">Admin</option><option value="manager">Manager</option><option value="staff">Staff</option>
                   </select>
                 </td>

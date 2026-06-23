@@ -1,0 +1,14 @@
+-- ============================================================
+-- Seed the team. Run AFTER each person has signed up once via
+-- Supabase Auth (so their auth.users row exists), then update
+-- the UUIDs below from auth.users before running this.
+-- ============================================================
+
+-- Example structure (replace 'uuid-here' with real auth.users.id values):
+-- insert into public.team_members (id, full_name, role, base_location, email, whatsapp) values
+-- ('uuid-here', 'Ali Chaudhry',   'CEO',                 'Lahore, Pakistan', 'ali@riverside.com',   '+92...'),
+-- ('uuid-here', 'Umer Chaudhry',  'Overseas Director',   'Saudi Arabia',     'umer@riverside.com',  '+966...'),
+-- ('uuid-here', 'Muhammad',       'Overseas Director',   'Saudi Arabia',     'muhammad@riverside.com','+966...'),
+-- ('uuid-here', 'Maria',          'Manager',             'Lahore, Pakistan', 'maria@riverside.com', '+92...'),
+-- ('uuid-here', 'Salman',         'Partner-Sales',       'Lahore, Pakistan', 'salman@riverside.com','+92...'),
+-- ('uuid-here', 'Amna',           'Marketing Executive', 'Lahore, Pakistan', 'amna@riverside.com',  '+92...');
