@@ -755,6 +755,12 @@ export default function App() {
 function StaffManagement({ S, inp, btn, pri, jobs }) {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newStaffEmail, setNewStaffEmail] = useState("");
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffPassword, setNewStaffPassword] = useState("");
+  const [createdMessage, setCreatedMessage] = useState("");
+  const [creatingStaff, setCreatingStaff] = useState(false);
   const clientNames = [...new Set(jobs.map(j=>j.client))];
 
   const fetchStaff = useCallback(async () => {
@@ -777,23 +783,92 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
     fetchStaff();
   };
 
+  const generatePassword = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$";
+    let pwd = "";
+    for (let i = 0; i < 12; i++) pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    setNewStaffPassword(pwd);
+  };
+
+  const createStaffAccount = async () => {
+    if (!newStaffEmail.trim() || !newStaffName.trim() || !newStaffPassword.trim()) {
+      alert("Please fill in all fields and generate a password");
+      return;
+    }
+    setCreatingStaff(true);
+    
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newStaffEmail,
+        password: newStaffPassword,
+        options: { data: { full_name: newStaffName } }
+      });
+      
+      if (authError) { alert(authError.message); setCreatingStaff(false); return; }
+
+      if (authData.user) {
+        await supabase.from("profiles").update({ 
+          full_name: newStaffName,
+          role: "staff" 
+        }).eq("id", authData.user.id);
+      }
+
+      setCreatedMessage(`✓ Account created! Email: ${newStaffEmail} | Password: ${newStaffPassword}`);
+      setNewStaffEmail("");
+      setNewStaffName("");
+      setNewStaffPassword("");
+      
+      setTimeout(() => {
+        setCreatedMessage("");
+        setShowCreateForm(false);
+        fetchStaff();
+      }, 3000);
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+    setCreatingStaff(false);
+  };
+
   if (loading) return <div style={{color:"#9CA3AF"}}>Loading staff…</div>;
 
   return (
     <div>
       <div style={{ background:"#EEF2FF", border:"1px solid #C7D2FE", borderRadius:12, padding:"14px 18px", marginBottom:18 }}>
-        <div style={{ fontWeight:700, fontSize:14, color:"#3730A3" }}>🔑 Staff Access ({staff.length} accounts)</div>
-        <div style={{ fontSize:12, color:"#4338CA", marginTop:4 }}>Staff create their own accounts via the "New Staff Account" tab on the login screen. As Admin, you assign roles here. Admin: full access. Manager: limited to assigned clients. Staff: data entry, no delete.</div>
+        <div style={{ fontWeight:700, fontSize:14, color:"#3730A3" }}>🔑 Staff Access Management ({staff.length} accounts)</div>
+        <div style={{ fontSize:12, color:"#4338CA", marginTop:4 }}>You create staff accounts with temporary passwords. Share credentials via WhatsApp. Admin: full access. Manager: limited to assigned clients. Staff: data entry only.</div>
       </div>
+
+      {showCreateForm && (
+        <div style={{ ...S.card, marginBottom:18, background:"#F0FDF4", borderColor:"#BBF7D0" }}>
+          <div style={{ fontWeight:700, fontSize:13, marginBottom:14, color:"#166534" }}>➕ Add New Staff Member</div>
+          <input style={{ ...inp, marginBottom:10 }} placeholder="Full name" value={newStaffName} onChange={e=>setNewStaffName(e.target.value)} />
+          <input style={{ ...inp, marginBottom:10 }} type="email" placeholder="Email address" value={newStaffEmail} onChange={e=>setNewStaffEmail(e.target.value)} />
+          <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+            <input style={{ ...inp, marginBottom:0, flex:1 }} placeholder="Temporary password" value={newStaffPassword} readOnly />
+            <button style={btn()} onClick={generatePassword}>Generate</button>
+          </div>
+          {createdMessage && <div style={{ background:"#F0FDF4", border:"1px solid #BBF7D0", color:"#166534", borderRadius:8, padding:"10px 12px", fontSize:11, marginBottom:12, wordBreak:"break-all", fontFamily:"monospace" }}>{createdMessage}</div>}
+          <div style={{ display:"flex", gap:8 }}>
+            <button style={pri} onClick={createStaffAccount} disabled={creatingStaff}>{creatingStaff?"Creating…":"Create Account"}</button>
+            <button style={btn()} onClick={()=>setShowCreateForm(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {!showCreateForm && (
+        <button style={{...pri, marginBottom:18}} onClick={()=>{setShowCreateForm(true);setCreatedMessage("")}}>➕ Add New Staff Member</button>
+      )}
+
       <div style={S.card}>
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead><tr>{["Name","Role","Client Access (Managers only)"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Name","Email","Role","Client Access (Managers only)"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {staff.map(s=>(
               <tr key={s.id}>
                 <td style={S.td}>{s.full_name}</td>
+                <td style={{...S.td, fontSize:11, color:"#6B7280"}}>{s.email}</td>
                 <td style={S.td}>
-                  <select style={{ ...inp, width:"auto" }} value={s.role} onChange={e=>updateRole(s.id, e.target.value)}>
+                  <select style={{ ...inp, width:"auto", fontSize:12 }} value={s.role} onChange={e=>updateRole(s.id, e.target.value)}>
                     <option value="admin">Admin</option><option value="manager">Manager</option><option value="staff">Staff</option>
                   </select>
                 </td>
