@@ -151,8 +151,10 @@ export default function App() {
     const { data: jobsData } = await supabase.from("job_orders").select("*").order("created_at",{ascending:false});
     const { data: candsData } = await supabase.from("candidates").select("*").order("added_date",{ascending:false});
     const { data: logData } = await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(60);
+    const { data: posData } = await supabase.from("job_positions").select("*");
     setJobs(jobsData||[]);
     setCands(candsData||[]);
+    setPositions(posData||[]);
     setLog((logData||[]).map(l=>({ msg:l.message, time:new Date(l.created_at).toLocaleDateString("en-GB") })));
   }, []);
 
