@@ -3,11 +3,6 @@ import { supabase } from "./lib/supabase";
 import { STAGES, STAGE_MAP, COUNTRIES, YNP, PP_STATUSES, TRADE_TEST_OPTS, EMPTY_CAND, EMPTY_JOB, uid, fmtDate, today, todayISO, daysUntil, sanitizeForDb } from "./lib/constants";
 import Login from "./components/Login";
 import Databank from "./components/Databank";
-import CrmDashboard from "./crm/CrmDashboard";
-import ClientList from "./crm/ClientList";
-import ClientDetail from "./crm/ClientDetail";
-import CampaignManager from "./crm/CampaignManager";
-import CrmReports from "./crm/CrmReports";
 import * as XLSX from "xlsx";
 
 // ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
@@ -112,6 +107,9 @@ export default function App() {
   const [page, setPage] = useState("dashboard");
   const [cands, setCands] = useState([]);
   const [jobs, setJobs] = useState([]);
+  const [positions, setPositions] = useState([]);
+  const [showPositionModal, setShowPositionModal] = useState(null); // job_id or null
+  const [newPosition, setNewPosition] = useState({ position_name: "", required_count: 1 });
   const [log, setLog] = useState([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
@@ -124,8 +122,6 @@ export default function App() {
   const [stageFil, setStageFil] = useState("");
   const [jobFil, setJobFil] = useState("");
   const [detailId, setDetailId] = useState(null);
-  const [crmView, setCrmView] = useState("dashboard"); // 'dashboard' | 'clients' | 'campaigns'
-  const [crmClientId, setCrmClientId] = useState(null);
   const [dtab, setDtab] = useState("overview");
   const [rptJob, setRptJob] = useState("");
   const [waText, setWaText] = useState("");
@@ -148,8 +144,10 @@ export default function App() {
     const { data: jobsData } = await supabase.from("job_orders").select("*").order("created_at",{ascending:false});
     const { data: candsData } = await supabase.from("candidates").select("*").order("added_date",{ascending:false});
     const { data: logData } = await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(60);
+    const { data: posData } = await supabase.from("job_positions").select("*").order("created_at",{ascending:false});
     setJobs(jobsData||[]);
     setCands(candsData||[]);
+    setPositions(posData||[]);
     setLog((logData||[]).map(l=>({ msg:l.message, time:new Date(l.created_at).toLocaleDateString("en-GB") })));
   }, []);
 
@@ -176,6 +174,17 @@ export default function App() {
   // ── CRUD ──
   const saveCand = async () => {
     if (!cf.name.trim()) { alert("Full name is required"); return; }
+    if (!cf.cnic.trim()) { alert("CNIC/ID is required"); return; }
+    
+    // Check for duplicate CNIC only when adding new candidate
+    if (!editId) {
+      const { data: existing } = await supabase.from("candidates").select("id").eq("cnic", cf.cnic).limit(1);
+      if (existing && existing.length > 0) {
+        alert(`⚠️ Candidate with CNIC "${cf.cnic}" already exists in the system. Cannot add duplicate.`);
+        return;
+      }
+    }
+    
     const payload = sanitizeForDb({ ...cf });
     delete payload.id;
     if (editId) {
@@ -217,6 +226,27 @@ export default function App() {
     const { error } = await supabase.from("job_orders").delete().eq("id", id);
     if (error) { alert(error.message); return; }
     addLog(`Deleted job: ${j?.ref}`);
+    fetchAll();
+  };
+
+  const addPosition = async (jobId) => {
+    if (!newPosition.position_name.trim()) { alert("Position name required"); return; }
+    const { error } = await supabase.from("job_positions").insert([{
+      job_id: jobId,
+      position_name: newPosition.position_name,
+      required_count: Number(newPosition.required_count)||1
+    }]);
+    if (error) { alert(error.message); return; }
+    addLog(`Added position: ${newPosition.position_name}`);
+    setNewPosition({ position_name: "", required_count: 1 });
+    fetchAll();
+  };
+
+  const deletePosition = async (posId) => {
+    if (!window.confirm("Delete this position?")) return;
+    const { error } = await supabase.from("job_positions").delete().eq("id", posId);
+    if (error) { alert(error.message); return; }
+    addLog("Position deleted");
     fetchAll();
   };
   const moveStage = async (cid, sid) => {
@@ -315,8 +345,6 @@ export default function App() {
           <NavItem p="jobs" icon="📋" label="Job Orders"/>
           <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
           <NavItem p="reports" icon="📄" label="Status Reports"/>
-          <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Sales</div>
-          <NavItem p="crm" icon="📞" label="Client CRM"/>
           {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
@@ -334,7 +362,7 @@ export default function App() {
           <div>
             <div style={{fontWeight:700,fontSize:16}}>
               {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="candidates"&&"In-Process Candidates"}
-              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"Client CRM"}{page==="staff"&&"Staff Access Management"}
+              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="staff"&&"Staff Access Management"}
             </div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
           </div>
@@ -533,8 +561,31 @@ export default function App() {
                     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                       <button style={btn({fontSize:12,flex:1})} onClick={()=>{setJobFil(j.id);setPage("pipeline");}}>View Pipeline</button>
                       <button style={btn({fontSize:12,flex:1,color:"#6366F1",borderColor:"#C7D2FE"})} onClick={()=>{setRptJob(j.id);setPage("reports");}}>Export Report</button>
+                      <button style={btn({fontSize:12,color:"#9CA3AF",borderColor:"#E5E7EB"})} onClick={()=>setShowPositionModal(showPositionModal===j.id?null:j.id)}>🔷 Positions</button>
                       {canManage && <button style={btn({fontSize:12,color:"#EF4444",borderColor:"#FEE2E2",padding:"7px 10px"})} onClick={()=>delJob(j.id)}>✕</button>}
                     </div>
+                    {showPositionModal===j.id && (
+                      <div style={{marginTop:12,borderTop:"1px solid #F3F4F6",paddingTop:12}}>
+                        <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Positions for this job:</div>
+                        {positions.filter(p=>p.job_id===j.id).length>0 ? (
+                          <div style={{marginBottom:10}}>
+                            {positions.filter(p=>p.job_id===j.id).map(p=>(
+                              <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid #F9FAFB"}}>
+                                <div><div style={{fontSize:11,fontWeight:600}}>{p.position_name}</div><div style={{fontSize:10,color:"#9CA3AF"}}>Need: {p.required_count} | Filled: {p.filled_count}</div></div>
+                                <button style={btn({padding:"3px 8px",fontSize:10,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>deletePosition(p.id)}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : <div style={{fontSize:11,color:"#9CA3AF",marginBottom:10}}>No positions added yet</div>}
+                        {canManage && (
+                          <div style={{display:"flex",gap:6}}>
+                            <input style={{...inp,flex:1,marginBottom:0,padding:"6px 8px",fontSize:11}} placeholder="Position (Chef, Driver, etc.)" value={newPosition.position_name} onChange={e=>setNewPosition(p=>({...p,position_name:e.target.value}))} />
+                            <input style={{...inp,width:50,marginBottom:0,padding:"6px 8px",fontSize:11}} type="number" min="1" placeholder="Qty" value={newPosition.required_count} onChange={e=>setNewPosition(p=>({...p,required_count:Number(e.target.value)||1}))} />
+                            <button style={btn({fontSize:11,padding:"6px 10px"})} onClick={()=>addPosition(j.id)}>Add</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>;
               })}
@@ -578,27 +629,6 @@ export default function App() {
                   })}
                 </div>
               )}
-            </div>
-          )}
-
-          {/* ══ CRM ══ */}
-          {page==="crm"&&(
-            <div>
-              <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-                {["dashboard","clients","campaigns","reports"].map(v=>(
-                  <button key={v} style={btn({background:crmView===v?"#6366F1":"#fff",color:crmView===v?"#fff":"#374151"})}
-                    onClick={()=>{setCrmView(v);setCrmClientId(null);}}>
-                    {v.charAt(0).toUpperCase()+v.slice(1)}
-                  </button>
-                ))}
-              </div>
-              {crmView==="dashboard" && <CrmDashboard currentUser={profile} />}
-              {crmView==="clients" && !crmClientId && <ClientList onSelectClient={setCrmClientId} currentUser={profile} />}
-              {crmView==="clients" && crmClientId && (
-                <ClientDetail clientId={crmClientId} currentUser={profile} onBack={()=>setCrmClientId(null)} />
-              )}
-              {crmView==="campaigns" && <CampaignManager currentUser={profile} />}
-              {crmView==="reports" && <CrmReports />}
             </div>
           )}
 
@@ -818,33 +848,6 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
     fetchStaff();
   };
 
-  const deleteStaff = async (id, name) => {
-    if (!window.confirm(`Delete ${name}'s account? This cannot be undone.`)) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
-      body: JSON.stringify({ action: "delete", userId: id, requesterId: session?.user?.id }),
-    });
-    const result = await res.json();
-    if (result.error) { alert(result.error); return; }
-    fetchStaff();
-  };
-
-  const editStaffEmail = async (id, currentEmail) => {
-    const newEmail = window.prompt("Enter corrected email address:", currentEmail);
-    if (!newEmail || newEmail === currentEmail) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
-      body: JSON.stringify({ action: "update_email", userId: id, newEmail, requesterId: session?.user?.id }),
-    });
-    const result = await res.json();
-    if (result.error) { alert(result.error); return; }
-    fetchStaff();
-  };
-
   const toggleClient = async (id, client, current) => {
     const list = current || [];
     const updated = list.includes(client) ? list.filter(c=>c!==client) : [...list, client];
@@ -865,28 +868,30 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
       return;
     }
     setCreatingStaff(true);
-
+    
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
-        body: JSON.stringify({
-          action: "create",
-          email: newStaffEmail,
-          password: newStaffPassword,
-          fullName: newStaffName,
-          requesterId: session?.user?.id,
-        }),
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newStaffEmail,
+        password: newStaffPassword,
+        options: { data: { full_name: newStaffName } }
       });
-      const result = await res.json();
-      if (result.error) { alert(result.error); setCreatingStaff(false); return; }
+      
+      if (authError) { alert(authError.message); setCreatingStaff(false); return; }
+
+      // Update profile with name (profile auto-created by trigger)
+      if (authData.user) {
+        await supabase.from("profiles").update({ 
+          full_name: newStaffName,
+          role: "staff" 
+        }).eq("id", authData.user.id);
+      }
 
       setCreatedMessage(`✓ Account created! Email: ${newStaffEmail} | Password: ${newStaffPassword}`);
       setNewStaffEmail("");
       setNewStaffName("");
       setNewStaffPassword("");
-
+      
       setTimeout(() => {
         setCreatedMessage("");
         setShowCreateForm(false);
@@ -931,7 +936,7 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
 
       <div style={S.card}>
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead><tr>{["Name","Email","Role","Client Access (Managers only)","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Name","Email","Role","Client Access (Managers only)"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {staff.map(s=>(
               <tr key={s.id}>
@@ -951,12 +956,6 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
                       ))}
                     </div>
                   ) : <span style={{ fontSize:12, color:"#9CA3AF" }}>{s.role==="admin"?"All clients":"N/A"}</span>}
-                </td>
-                <td style={S.td}>
-                  <div style={{ display:"flex", gap:6 }}>
-                    <button style={btn({padding:"4px 10px",fontSize:11})} onClick={()=>editStaffEmail(s.id, s.email)}>Edit Email</button>
-                    <button style={btn({padding:"4px 10px",fontSize:11,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>deleteStaff(s.id, s.full_name)}>Delete</button>
-                  </div>
                 </td>
               </tr>
             ))}
