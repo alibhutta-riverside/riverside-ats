@@ -113,6 +113,7 @@ export default function App() {
   const [showPos, setShowPos] = useState(null);
   const [cands, setCands] = useState([]);
   const [jobs, setJobs] = useState([]);
+  const [positions, setPositions] = useState([]);
   const [log, setLog] = useState([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
@@ -218,7 +219,8 @@ export default function App() {
       const posPayload = tempPositions.map(p => ({
         job_id: jobId,
         position_name: p.position_name,
-        required_count: Number(p.required_count) || 1
+        required_count: Number(p.required_count) || 1,
+        salary: p.salary || ""
       }));
       await supabase.from("job_positions").insert(posPayload);
     }
@@ -554,6 +556,7 @@ export default function App() {
                 const dep=jcands.filter(c=>c.stage==="deployed").length;
                 const pct=j.vacancies?Math.min(100,Math.round(dep/j.vacancies*100)):0;
                 const statusColor=j.status==="Open"?"#10B981":j.status==="Filled"?"#6366F1":"#6B7280";
+                const jobPositions=positions.filter(p=>p.job_id===j.id);
                 return <div key={j.id} style={{...card,padding:0}}>
                   <div style={{padding:"16px 18px",borderBottom:"1px solid #F3F4F6"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
@@ -568,6 +571,20 @@ export default function App() {
                         <div key={k}><div style={{fontSize:11,color:"#9CA3AF"}}>{k}</div><div style={{fontSize:13,fontWeight:600}}>{v}</div></div>
                       ))}
                     </div>
+
+                    {/* ADDITIONAL POSITIONS - ALWAYS VISIBLE */}
+                    {jobPositions.length > 0 && (
+                      <div style={{marginBottom:12,background:"#F9FAFB",borderRadius:8,padding:"10px 12px",border:"1px solid #E5E7EB"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#6B7280",marginBottom:6,textTransform:"uppercase"}}>Additional Positions:</div>
+                        {jobPositions.map(p=>(
+                          <div key={p.id} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:12}}>
+                            <span style={{fontWeight:600,color:"#374151"}}>{p.position_name}</span>
+                            <span style={{color:"#6B7280"}}>Vacancies: {p.required_count} | SAR {p.salary||"—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     <div style={{height:6,borderRadius:3,background:"#F3F4F6",marginBottom:10}}><div style={{height:6,borderRadius:3,background:"#10B981",width:`${pct}%`}}/></div>
                     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                       <button style={btn({fontSize:12,flex:1})} onClick={()=>{setJobFil(j.id);setPage("pipeline");}}>View Pipeline</button>
