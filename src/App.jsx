@@ -11,12 +11,18 @@ import CrmReports from "./crm/CrmReports";
 import * as XLSX from "xlsx";
 
 // ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
-function exportExcel(cands, jobs, jobId) {
+function exportExcel(cands, jobs, jobId, positions=[]) {
   const job = jobs.find(j=>j.id===jobId);
   if (!job) return;
   const list = cands.filter(c=>c.job_id===jobId);
   const wb = XLSX.utils.book_new();
   const filled = list.filter(c=>c.stage==="deployed").length;
+  const allPos = [
+    { position_name: job.position, required_count: job.vacancies, salary: job.salary },
+    ...positions.filter(p=>p.job_id===jobId)
+  ];
+  const totalVac = allPos.reduce((s,p)=>s+(Number(p.required_count)||0),0);
+  const positionLabel = allPos.map(p=>p.position_name).join(", ");
 
   const coverRows = [
     ["","","","","","",""],
@@ -27,8 +33,11 @@ function exportExcel(cands, jobs, jobId) {
     ["","","","","","",""],
     ["","Client:",job.client,"","Country:",job.country,""],
     ["","Order Ref:",job.ref,"","City:",job.city,""],
-    ["","Position:",job.position,"","Vacancies:",job.vacancies,""],
     ["","Report Date:",today(),"","Deadline:",fmtDate(job.deadline),""],
+    ["","","","","","",""],
+    ["","JOB POSITIONS","","","","",""],
+    ["","Position","Vacancies","","Salary (SAR)","",""],
+    ...allPos.map(p=>["",p.position_name,p.required_count,"",p.salary||"—","",""]),
     ["","","","","","",""],
     ["","PIPELINE SUMMARY","","","","",""],
     ["","","","","","",""],
@@ -39,7 +48,7 @@ function exportExcel(cands, jobs, jobId) {
   stageRows.push(["","TOTAL CANDIDATES",list.length,"","DEPLOYED",filled,""]);
   const wsCover = XLSX.utils.aoa_to_sheet([...coverRows,...stageRows]);
   wsCover["!cols"] = [{wch:3},{wch:30},{wch:28},{wch:3},{wch:18},{wch:22},{wch:3}];
-  wsCover["!merges"] = [{s:{r:1,c:1},e:{r:1,c:5}},{s:{r:2,c:1},e:{r:2,c:5}},{s:{r:4,c:1},e:{r:4,c:5}},{s:{r:11,c:1},e:{r:11,c:5}}];
+  wsCover["!merges"] = [{s:{r:1,c:1},e:{r:1,c:5}},{s:{r:2,c:1},e:{r:2,c:5}},{s:{r:4,c:1},e:{r:4,c:5}},{s:{r:10,c:1},e:{r:10,c:5}},{s:{r:13+allPos.length,c:1},e:{r:13+allPos.length,c:5}}];
   XLSX.utils.book_append_sheet(wb, wsCover, "Summary");
 
   const headers = ["S.No","Full Name","Father Name","CNIC","Phone","Trade","Exp.","Passport","Pass. Expiry","Stage",
@@ -52,14 +61,14 @@ function exportExcel(cands, jobs, jobId) {
     c.medical_status,c.medical_date?fmtDate(c.medical_date):"",c.medical_expiry?fmtDate(c.medical_expiry):"",c.trade_test_status,c.trade_test_date?fmtDate(c.trade_test_date):"",
     c.pp_sub_status,c.pp_sub_date?fmtDate(c.pp_sub_date):"",c.pp_dispatch_date?fmtDate(c.pp_dispatch_date):"",c.pp_received_date?fmtDate(c.pp_received_date):"",c.stamping_date?fmtDate(c.stamping_date):"",c.beoe_status,c.beoe_permission_no||"",c.beoe_registration_no||"",c.beoe_fee_paid||"",c.flight_date?fmtDate(c.flight_date):"",c.objection,c.remarks
   ]);
-  const wsData = XLSX.utils.aoa_to_sheet([[`STATUS REPORT — ${job.client.toUpperCase()} | ${job.ref} | ${job.position} | ${today()}`],[],headers,...rows]);
+  const wsData = XLSX.utils.aoa_to_sheet([[`STATUS REPORT — ${job.client.toUpperCase()} | ${job.ref} | ${positionLabel} | ${today()}`],[],headers,...rows]);
   wsData["!cols"] = headers.map(()=>({wch:16}));
   wsData["!merges"] = [{s:{r:0,c:0},e:{r:0,c:33}}];
   XLSX.utils.book_append_sheet(wb, wsData, "Candidate Status");
 
   const clientHeaders = ["S.No","Name","Trade","Passport No.","Stage","Medical","Visa No.","Flight Date","Status / Remarks"];
   const clientRows = list.map((c,i)=>[i+1,c.name,c.trade,c.passport,STAGE_MAP[c.stage]?.label||c.stage,c.medical_status||(c.medical_date?"Done":"—"),c.visa_no||"—",c.flight_date?fmtDate(c.flight_date):"—",c.objection?`⚠ ${c.objection}`:c.remarks||"In process"]);
-  const wsClient = XLSX.utils.aoa_to_sheet([[`CLIENT UPDATE — ${job.client} | ${job.position} | Ref: ${job.ref} | ${today()}`],[`Riverside Enterprises Recruitment Consultants, Lahore | Vacancies: ${job.vacancies} | Deployed: ${filled}`],[],clientHeaders,...clientRows]);
+  const wsClient = XLSX.utils.aoa_to_sheet([[`CLIENT UPDATE — ${job.client} | ${positionLabel} | Ref: ${job.ref} | ${today()}`],[`Riverside Enterprises Recruitment Consultants, Lahore | Total Vacancies: ${totalVac} | Deployed: ${filled}`],[],clientHeaders,...clientRows]);
   wsClient["!cols"] = [{wch:5},{wch:22},{wch:16},{wch:14},{wch:22},{wch:10},{wch:13},{wch:13},{wch:30}];
   wsClient["!merges"] = [{s:{r:0,c:0},e:{r:0,c:8}},{s:{r:1,c:0},e:{r:1,c:8}}];
   XLSX.utils.book_append_sheet(wb, wsClient, "Client Update");
@@ -67,14 +76,20 @@ function exportExcel(cands, jobs, jobId) {
   XLSX.writeFile(wb, `Riverside_${job.client.replace(/\s+/g,"_")}_${job.ref}_${today().replace(/\//g,"-")}.xlsx`);
 }
 
-function buildWA(cands, jobs, jobId) {
+function buildWA(cands, jobs, jobId, positions=[]) {
   const job = jobs.find(j=>j.id===jobId);
   if (!job) return "";
   const list = cands.filter(c=>c.job_id===jobId);
   const deployed = list.filter(c=>c.stage==="deployed").length;
   const inProcess = list.filter(c=>!["deployed","rejected"].includes(c.stage)).length;
   const lines = STAGES.map(s=>{ const n=list.filter(c=>c.stage===s.id).length; return n>0?`  ▸ ${s.label}: *${n}*`:null; }).filter(Boolean).join("\n");
-  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Position:* ${job.position}\n*Country:* ${job.country}, ${job.city}\n*Total Vacancies:* ${job.vacancies}\n\n*Pipeline Breakdown:*\n${lines}\n\n✅ *Deployed:* ${deployed} of ${job.vacancies}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
+  const allPos = [
+    { position_name: job.position, required_count: job.vacancies, salary: job.salary },
+    ...positions.filter(p=>p.job_id===jobId)
+  ];
+  const totalVac = allPos.reduce((s,p)=>s+(Number(p.required_count)||0),0);
+  const positionLines = allPos.map(p=>`  ▸ ${p.position_name} — ${p.required_count} vacancies${p.salary?` @ SAR ${p.salary}`:""}`).join("\n");
+  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Country:* ${job.country}, ${job.city}\n\n*Job Positions:*\n${positionLines}\n*Total Vacancies:* ${totalVac}\n\n*Pipeline Breakdown:*\n${lines}\n\n✅ *Deployed:* ${deployed} of ${totalVac}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
 }
 
 // ─── SMALL COMPONENTS ────────────────────────────────────────────────────────
@@ -611,8 +626,8 @@ export default function App() {
                     <option value="">— Select client / job order —</option>
                     {visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} ({j.position})</option>)}
                   </select>
-                  <button style={{...pri,opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&exportExcel(cands,jobs,rptJob)}>📊 Export to Excel</button>
-                  <button style={{...btn({background:"#25D366",color:"#fff",border:"none"}),opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&setWaText(buildWA(cands,jobs,rptJob))}>📱 WhatsApp Update</button>
+                  <button style={{...pri,opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&exportExcel(cands,jobs,rptJob,positions)}>📊 Export to Excel</button>
+                  <button style={{...btn({background:"#25D366",color:"#fff",border:"none"}),opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&setWaText(buildWA(cands,jobs,rptJob,positions))}>📱 WhatsApp Update</button>
                 </div>
               </div>
               {waText&&(
@@ -820,7 +835,7 @@ export default function App() {
 
         {/* POSITIONS SECTION */}
         <div style={{marginTop:20,borderTop:"1px solid #E5E7EB",paddingTop:16}}>
-          <div style={{fontWeight:700,fontSize:13,marginBottom:14,color:"#1F2937"}}>📍 Multiple Positions for this Job Order (Optional)</div>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:14,color:"#1F2937"}}>📍 Add More Job Positions for this Client (each treated equally)</div>
           
           {/* SHOW ADDED POSITIONS */}
           {tempPositions && tempPositions.length > 0 && (
