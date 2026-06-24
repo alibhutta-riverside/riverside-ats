@@ -345,6 +345,7 @@ export default function App() {
           <NavItem p="jobs" icon="📋" label="Job Orders"/>
           <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
           <NavItem p="reports" icon="📄" label="Status Reports"/>
+          <NavItem p="crm" icon="💼" label="CRM Dashboard"/>
           {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
@@ -362,7 +363,7 @@ export default function App() {
           <div>
             <div style={{fontWeight:700,fontSize:16}}>
               {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="candidates"&&"In-Process Candidates"}
-              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="staff"&&"Staff Access Management"}
+              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"CRM Dashboard"}{page==="staff"&&"Staff Access Management"}
             </div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
           </div>
@@ -629,6 +630,24 @@ export default function App() {
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ══ CRM DASHBOARD ══ */}
+          {page==="crm"&&(
+            <div style={{...card,padding:"20px 22px"}}>
+              <div style={{fontWeight:700,fontSize:16,marginBottom:8}}>💼 CRM Dashboard</div>
+              <div style={{color:"#6B7280",marginBottom:20}}>Client interactions, campaigns, and follow-up tracking</div>
+              <div style={{background:"#EEF2FF",border:"1px solid #C7D2FE",borderRadius:12,padding:"16px 18px"}}>
+                <div style={{fontWeight:600,color:"#3730A3",marginBottom:8}}>📋 CRM Features</div>
+                <div style={{fontSize:13,color:"#4338CA",lineHeight:1.8}}>
+                  • Track client interactions and follow-ups<br/>
+                  • Manage marketing campaigns<br/>
+                  • Monitor campaign recipient status<br/>
+                  • Set automated reminders<br/>
+                  • Alert management system
+                </div>
+              </div>
             </div>
           )}
 
