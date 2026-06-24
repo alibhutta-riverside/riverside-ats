@@ -742,15 +742,15 @@ export default function App() {
       {/* ══ CANDIDATE MODAL ══ */}
       <Modal id="cand" title={editId?"Edit Candidate":"Add New Candidate"} wide={640}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
-          <FR label="Full Name *"><input style={inp} value={cf.name} onChange={e=>setCf(f=>({...f,name:e.target.value}))} /></FR>
-          <FR label="Father's Name"><input style={inp} value={cf.father_name} onChange={e=>setCf(f=>({...f,father_name:e.target.value}))} /></FR>
-          <FR label="CNIC *"><input style={inp} value={cf.cnic} onChange={e=>setCf(f=>({...f,cnic:e.target.value}))} /></FR>
-          <FR label="Phone"><input style={inp} value={cf.phone} onChange={e=>setCf(f=>({...f,phone:e.target.value}))} /></FR>
-          <FR label="Trade / Position *"><input style={inp} value={cf.trade} onChange={e=>setCf(f=>({...f,trade:e.target.value}))} /></FR>
-          <FR label="Passport No."><input style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
-          <FR label="Passport Expiry"><input style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
-          <FR label="Stage"><select style={inp} value={cf.stage} onChange={e=>setCf(f=>({...f,stage:e.target.value}))}>{STAGES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></FR>
-          <FR label="Job Order"><select style={inp} value={cf.job_id||""} onChange={e=>setCf(f=>({...f,job_id:e.target.value||null}))}><option value="">— Unassigned —</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client}</option>)}</select></FR>
+          <FR label="Full Name *"><input key="name" style={inp} value={cf.name} onChange={e=>setCf(f=>({...f,name:e.target.value}))} /></FR>
+          <FR label="Father's Name"><input key="father_name" style={inp} value={cf.father_name} onChange={e=>setCf(f=>({...f,father_name:e.target.value}))} /></FR>
+          <FR label="CNIC *"><input key="cnic" style={inp} value={cf.cnic} onChange={e=>setCf(f=>({...f,cnic:e.target.value}))} /></FR>
+          <FR label="Phone"><input key="phone" style={inp} value={cf.phone} onChange={e=>setCf(f=>({...f,phone:e.target.value}))} /></FR>
+          <FR label="Trade / Position *"><input key="trade" style={inp} value={cf.trade} onChange={e=>setCf(f=>({...f,trade:e.target.value}))} /></FR>
+          <FR label="Passport No."><input key="passport" style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
+          <FR label="Passport Expiry"><input key="passport_expiry" style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
+          <FR label="Stage"><select key="stage" style={inp} value={cf.stage} onChange={e=>setCf(f=>({...f,stage:e.target.value}))}>{STAGES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></FR>
+          <FR label="Job Order"><select key="job_id" style={inp} value={cf.job_id||""} onChange={e=>setCf(f=>({...f,job_id:e.target.value||null}))}><option value="">— Unassigned —</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client}</option>)}</select></FR>
 
           <FR label="Offer Letter"><select style={inp} value={cf.offer_letter} onChange={e=>setCf(f=>({...f,offer_letter:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
           <FR label="Contract Signed"><select style={inp} value={cf.contract} onChange={e=>setCf(f=>({...f,contract:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
@@ -785,17 +785,17 @@ export default function App() {
       {/* ══ JOB MODAL ══ */}
       <Modal id="job" title="New Job Order">
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
-          <FR label="Order Reference *"><input style={inp} value={jf.ref} onChange={e=>setJf(f=>({...f,ref:e.target.value}))} /></FR>
-          <FR label="Client / Company *"><input style={inp} value={jf.client} onChange={e=>setJf(f=>({...f,client:e.target.value}))} /></FR>
-          <FR label="Country"><select style={inp} value={jf.country} onChange={e=>setJf(f=>({...f,country:e.target.value}))}>{COUNTRIES.map(c=><option key={c}>{c}</option>)}</select></FR>
-          <FR label="City"><input style={inp} value={jf.city} onChange={e=>setJf(f=>({...f,city:e.target.value}))} /></FR>
-          <FR label="Position / Trade *"><input style={inp} value={jf.position} onChange={e=>setJf(f=>({...f,position:e.target.value}))} /></FR>
-          <FR label="Vacancies"><input style={inp} type="number" min="1" value={jf.vacancies} onChange={e=>setJf(f=>({...f,vacancies:e.target.value}))} /></FR>
-          <FR label="Salary (SAR)"><input style={inp} value={jf.salary} onChange={e=>setJf(f=>({...f,salary:e.target.value}))} /></FR>
-          <FR label="Deadline"><input style={inp} type="date" value={jf.deadline} onChange={e=>setJf(f=>({...f,deadline:e.target.value}))} /></FR>
-          <FR label="Status"><select style={inp} value={jf.status} onChange={e=>setJf(f=>({...f,status:e.target.value}))}><option>Open</option><option>Filled</option><option>Closed</option></select></FR>
-          <FR label="Contact Person"><input style={inp} value={jf.contact} onChange={e=>setJf(f=>({...f,contact:e.target.value}))} /></FR>
-          <FR label="Notes" span><textarea style={{...inp,minHeight:55,resize:"vertical"}} value={jf.notes} onChange={e=>setJf(f=>({...f,notes:e.target.value}))} /></FR>
+          <FR label="Order Reference *"><input key="ref" style={inp} value={jf.ref} onChange={e=>setJf(f=>({...f,ref:e.target.value}))} /></FR>
+          <FR label="Client / Company *"><input key="client" style={inp} value={jf.client} onChange={e=>setJf(f=>({...f,client:e.target.value}))} /></FR>
+          <FR label="Country"><select key="country" style={inp} value={jf.country} onChange={e=>setJf(f=>({...f,country:e.target.value}))}>{COUNTRIES.map(c=><option key={c}>{c}</option>)}</select></FR>
+          <FR label="City"><input key="city" style={inp} value={jf.city} onChange={e=>setJf(f=>({...f,city:e.target.value}))} /></FR>
+          <FR label="Position / Trade *"><input key="position" style={inp} value={jf.position} onChange={e=>setJf(f=>({...f,position:e.target.value}))} /></FR>
+          <FR label="Vacancies"><input key="vacancies" style={inp} type="number" min="1" value={jf.vacancies} onChange={e=>setJf(f=>({...f,vacancies:e.target.value}))} /></FR>
+          <FR label="Salary (SAR)"><input key="salary" style={inp} value={jf.salary} onChange={e=>setJf(f=>({...f,salary:e.target.value}))} /></FR>
+          <FR label="Deadline"><input key="deadline" style={inp} type="date" value={jf.deadline} onChange={e=>setJf(f=>({...f,deadline:e.target.value}))} /></FR>
+          <FR label="Status"><select key="status" style={inp} value={jf.status} onChange={e=>setJf(f=>({...f,status:e.target.value}))}><option>Open</option><option>Filled</option><option>Closed</option></select></FR>
+          <FR label="Contact Person"><input key="contact" style={inp} value={jf.contact} onChange={e=>setJf(f=>({...f,contact:e.target.value}))} /></FR>
+          <FR label="Notes" span><textarea key="notes" style={{...inp,minHeight:55,resize:"vertical"}} value={jf.notes} onChange={e=>setJf(f=>({...f,notes:e.target.value}))} /></FR>
         </div>
 
         {/* POSITIONS SECTION */}
