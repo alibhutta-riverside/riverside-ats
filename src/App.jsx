@@ -120,6 +120,8 @@ export default function App() {
   const [editId, setEditId] = useState(null);
   const [cf, setCf] = useState(EMPTY_CAND);
   const [jf, setJf] = useState(EMPTY_JOB);
+  const [tempPositions, setTempPositions] = useState([]);
+  const [newPos, setNewPos] = useState({position_name:"",required_count:1});
   const [search, setSearch] = useState("");
   const [stageFil, setStageFil] = useState("");
   const [jobFil, setJobFil] = useState("");
@@ -204,10 +206,25 @@ export default function App() {
   const saveJob = async () => {
     if (!jf.ref.trim() || !jf.client.trim()) { alert("Reference and client required"); return; }
     const payload = sanitizeForDb({ ...jf, vacancies:Number(jf.vacancies)||1 });
-    const { error } = await supabase.from("job_orders").insert([{ ...payload, created_by: profile.id }]);
+    const { data: jobData, error } = await supabase.from("job_orders").insert([{ ...payload, created_by: profile.id }]).select();
     if (error) { alert(error.message); return; }
-    addLog(`New order: ${jf.ref} — ${jf.client}`);
-    setModal(null); setJf(EMPTY_JOB);
+    
+    // Save positions if any were added
+    if (jobData && jobData[0] && tempPositions && tempPositions.length > 0) {
+      const jobId = jobData[0].id;
+      const posPayload = tempPositions.map(p => ({
+        job_id: jobId,
+        position_name: p.position_name,
+        required_count: Number(p.required_count) || 1
+      }));
+      await supabase.from("job_positions").insert(posPayload);
+    }
+    
+    addLog(`New order: ${jf.ref} — ${jf.client}${tempPositions && tempPositions.length > 0 ? ` (${tempPositions.length} positions)` : ""}`);
+    setModal(null); 
+    setJf(EMPTY_JOB); 
+    setTempPositions([]);
+    setNewPos({position_name:"",required_count:1});
     fetchAll();
   };
 
@@ -768,9 +785,65 @@ export default function App() {
           <FR label="Contact Person"><input style={inp} value={jf.contact} onChange={e=>setJf(f=>({...f,contact:e.target.value}))} /></FR>
           <FR label="Notes" span><textarea style={{...inp,minHeight:55,resize:"vertical"}} value={jf.notes} onChange={e=>setJf(f=>({...f,notes:e.target.value}))} /></FR>
         </div>
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
-          <button style={btn()} onClick={()=>setModal(null)}>Cancel</button>
-          <button style={pri} onClick={saveJob}>Create Job Order</button>
+
+        {/* POSITIONS SECTION */}
+        <div style={{marginTop:20,borderTop:"1px solid #E5E7EB",paddingTop:16}}>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:14,color:"#1F2937"}}>📍 Multiple Positions for this Job Order (Optional)</div>
+          
+          {/* SHOW ADDED POSITIONS */}
+          {tempPositions && tempPositions.length > 0 && (
+            <div style={{marginBottom:14,background:"#F3F4F6",borderRadius:8,padding:"12px 14px"}}>
+              <div style={{fontSize:12,fontWeight:600,marginBottom:8,color:"#374151"}}>Added Positions:</div>
+              {tempPositions.map((p,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<tempPositions.length-1?"1px solid #E5E7EB":"none"}}>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:12,color:"#1F2937"}}>{p.position_name}</div>
+                    <div style={{fontSize:11,color:"#6B7280"}}>Visas Required: {p.required_count}</div>
+                  </div>
+                  <button style={{background:"#FEE2E2",color:"#DC2626",border:"none",borderRadius:4,padding:"6px 10px",fontSize:11,cursor:"pointer",fontWeight:600}} onClick={()=>setTempPositions(tempPositions.filter((_,idx)=>idx!==i))}>Remove</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ADD NEW POSITION */}
+          <div style={{background:"#F9FAFB",borderRadius:8,padding:"12px 14px",border:"1px solid #E5E7EB"}}>
+            <div style={{fontSize:12,fontWeight:600,marginBottom:10,color:"#374151"}}>Add New Position:</div>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr auto",gap:8}}>
+              <input 
+                style={{...inp,marginBottom:0}} 
+                placeholder="Position (Chef, Driver, Manager, etc.)" 
+                value={newPos.position_name} 
+                onChange={e=>setNewPos(p=>({...p,position_name:e.target.value}))} 
+              />
+              <input 
+                style={{...inp,marginBottom:0}} 
+                type="number" 
+                min="1" 
+                placeholder="Visas" 
+                value={newPos.required_count} 
+                onChange={e=>setNewPos(p=>({...p,required_count:Number(e.target.value)||1}))} 
+              />
+              <button 
+                style={{background:"#10B981",color:"#fff",border:"none",borderRadius:4,padding:"8px 14px",cursor:"pointer",fontWeight:600,fontSize:12}} 
+                onClick={()=>{
+                  if(newPos.position_name.trim()){
+                    setTempPositions([...tempPositions,{...newPos}]);
+                    setNewPos({position_name:"",required_count:1});
+                  }else{
+                    alert("Please enter position name");
+                  }
+                }}
+              >
+                + Add
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
+          <button style={btn()} onClick={()=>{setModal(null);setTempPositions([]);setNewPos({position_name:"",required_count:1});}}>Cancel</button>
+          <button style={pri} onClick={saveJob}>Create Job Order {tempPositions && tempPositions.length>0?`+ ${tempPositions.length} Position${tempPositions.length!==1?"s":""}`:""}</button>
         </div>
       </Modal>
 
