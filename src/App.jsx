@@ -105,6 +105,15 @@ const Avatar = ({ url, name, size=36 }) => url
   : <div style={{ width:size, height:size, borderRadius:8, background:"#F3F4F6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size/3, fontWeight:600, color:"#9CA3AF", flexShrink:0 }}>{(name||"?").charAt(0).toUpperCase()}</div>;
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
+function FR({label,children,span}) {
+  return (
+    <div style={{marginBottom:12,gridColumn:span?"1/-1":"auto"}}>
+      <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -299,25 +308,18 @@ export default function App() {
     <button style={nav(p)} onClick={()=>{setPage(p);setMobileNavOpen(false);}}><span style={{fontSize:16}}>{icon}</span>{label}</button>
   );
 
-  const FR = ({label,children,span}) => (
-    <div style={{marginBottom:12,gridColumn:span?"1/-1":"auto"}}>
-      <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
-      {children}
-    </div>
-  );
-
-  const Modal = ({id,title,wide,children}) => modal!==id?null:(
+  const Modal = useCallback(({id,title,wide,children}) => modal!==id?null:(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
          onClick={e=>e.target===e.currentTarget&&setModal(null)}>
       <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:wide||560,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 25px 50px rgba(0,0,0,.2)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
           <span style={{fontSize:15,fontWeight:700,color:"#111827"}}>{title}</span>
-          <button style={btn({padding:"4px 10px"})} onClick={()=>setModal(null)}>✕</button>
+          <button style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:13,color:"#374151",fontFamily:"inherit"}} onClick={()=>setModal(null)}>✕</button>
         </div>
         <div style={{padding:"20px 22px"}}>{children}</div>
       </div>
     </div>
-  );
+  ), [modal]);
 
   const canDelete = profile.role === "admin";
   const canManage = profile.role === "admin" || profile.role === "manager";
