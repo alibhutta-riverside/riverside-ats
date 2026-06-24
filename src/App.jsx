@@ -175,6 +175,19 @@ export default function App() {
     if (profile) await supabase.from("activity_log").insert([{ message:msg, created_by:profile.id }]);
   };
 
+  const Modal = useCallback(({id,title,wide,children}) => modal!==id?null:(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+         onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:wide||560,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 25px 50px rgba(0,0,0,.2)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
+          <span style={{fontSize:15,fontWeight:700,color:"#111827"}}>{title}</span>
+          <button style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:13,color:"#374151",fontFamily:"inherit"}} onClick={()=>setModal(null)}>✕</button>
+        </div>
+        <div style={{padding:"20px 22px"}}>{children}</div>
+      </div>
+    </div>
+  ), [modal]);
+
   if (loadingAuth) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"sans-serif",color:"#6B7280"}}>Loading…</div>;
   if (!session) return <Login />;
   if (!profile) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"sans-serif",color:"#6B7280"}}>Setting up your account…</div>;
@@ -307,19 +320,6 @@ export default function App() {
   const NavItem = ({p,icon,label}) => (
     <button style={nav(p)} onClick={()=>{setPage(p);setMobileNavOpen(false);}}><span style={{fontSize:16}}>{icon}</span>{label}</button>
   );
-
-  const Modal = useCallback(({id,title,wide,children}) => modal!==id?null:(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
-         onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:wide||560,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 25px 50px rgba(0,0,0,.2)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
-          <span style={{fontSize:15,fontWeight:700,color:"#111827"}}>{title}</span>
-          <button style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:13,color:"#374151",fontFamily:"inherit"}} onClick={()=>setModal(null)}>✕</button>
-        </div>
-        <div style={{padding:"20px 22px"}}>{children}</div>
-      </div>
-    </div>
-  ), [modal]);
 
   const canDelete = profile.role === "admin";
   const canManage = profile.role === "admin" || profile.role === "manager";
