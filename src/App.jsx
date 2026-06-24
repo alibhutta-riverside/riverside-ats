@@ -110,6 +110,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [page, setPage] = useState("dashboard");
+  const [showPos, setShowPos] = useState(null);
   const [cands, setCands] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [log, setLog] = useState([]);
@@ -246,6 +247,15 @@ export default function App() {
     addLog(`Deleted job: ${j?.ref}`);
     fetchAll();
   };
+
+  const delPos = async (posId) => {
+    if (!window.confirm("Delete this position?")) return;
+    const { error } = await supabase.from("job_positions").delete().eq("id", posId);
+    if (error) { alert(error.message); return; }
+    addLog("Position deleted");
+    fetchAll();
+  };
+  
   const moveStage = async (cid, sid) => {
     const { error } = await supabase.from("candidates").update({ stage: sid }).eq("id", cid);
     if (error) { alert(error.message); return; }
@@ -560,8 +570,26 @@ export default function App() {
                     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                       <button style={btn({fontSize:12,flex:1})} onClick={()=>{setJobFil(j.id);setPage("pipeline");}}>View Pipeline</button>
                       <button style={btn({fontSize:12,flex:1,color:"#6366F1",borderColor:"#C7D2FE"})} onClick={()=>{setRptJob(j.id);setPage("reports");}}>Export Report</button>
+                      <button style={btn({fontSize:12})} onClick={()=>setShowPos(showPos===j.id?null:j.id)}>🔷 Pos</button>
                       {canManage && <button style={btn({fontSize:12,color:"#EF4444",borderColor:"#FEE2E2",padding:"7px 10px"})} onClick={()=>delJob(j.id)}>✕</button>}
                     </div>
+                    
+                    {/* SHOW POSITIONS FOR THIS JOB */}
+                    {showPos===j.id && (
+                      <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #F3F4F6"}}>
+                        <div style={{fontSize:11,fontWeight:600,marginBottom:8,color:"#374151"}}>Positions:</div>
+                        {positions.filter(p=>p.job_id===j.id).length>0 ? (
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {positions.filter(p=>p.job_id===j.id).map(p=>(
+                              <div key={p.id} style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:6,padding:"8px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                                <div><div style={{fontSize:11,fontWeight:600}}>{p.position_name}</div><div style={{fontSize:10,color:"#6B7280"}}>Need: {p.required_count} | Filled: {p.filled_count||0}</div></div>
+                                {canManage && <button style={btn({padding:"3px 8px",fontSize:9,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>delPos(p.id)}>✕</button>}
+                              </div>
+                            ))}
+                          </div>
+                        ) : <div style={{fontSize:10,color:"#9CA3AF"}}>No additional positions</div>}
+                      </div>
+                    )}
                   </div>
                 </div>;
               })}
