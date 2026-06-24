@@ -122,7 +122,7 @@ export default function App() {
   const [cf, setCf] = useState(EMPTY_CAND);
   const [jf, setJf] = useState(EMPTY_JOB);
   const [tempPositions, setTempPositions] = useState([]);
-  const [newPos, setNewPos] = useState({position_name:"",required_count:1});
+  const [newPos, setNewPos] = useState({position_name:"",required_count:1,salary:""});
   const [search, setSearch] = useState("");
   const [stageFil, setStageFil] = useState("");
   const [jobFil, setJobFil] = useState("");
@@ -810,7 +810,7 @@ export default function App() {
                 <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<tempPositions.length-1?"1px solid #E5E7EB":"none"}}>
                   <div>
                     <div style={{fontWeight:600,fontSize:12,color:"#1F2937"}}>{p.position_name}</div>
-                    <div style={{fontSize:11,color:"#6B7280"}}>Visas Required: {p.required_count}</div>
+                    <div style={{fontSize:11,color:"#6B7280"}}>Visas: {p.required_count} | Salary: SAR {p.salary||"—"}</div>
                   </div>
                   <button style={{background:"#FEE2E2",color:"#DC2626",border:"none",borderRadius:4,padding:"6px 10px",fontSize:11,cursor:"pointer",fontWeight:600}} onClick={()=>setTempPositions(tempPositions.filter((_,idx)=>idx!==i))}>Remove</button>
                 </div>
@@ -821,27 +821,36 @@ export default function App() {
           {/* ADD NEW POSITION */}
           <div style={{background:"#F9FAFB",borderRadius:8,padding:"12px 14px",border:"1px solid #E5E7EB"}}>
             <div style={{fontSize:12,fontWeight:600,marginBottom:10,color:"#374151"}}>Add New Position:</div>
-            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr auto",gap:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:8,alignItems:"flex-end"}}>
               <input 
+                key="pos_name"
                 style={{...inp,marginBottom:0}} 
-                placeholder="Position (Chef, Driver, Manager, etc.)" 
+                placeholder="Position (Chef, Driver, Manager)" 
                 value={newPos.position_name} 
                 onChange={e=>setNewPos(p=>({...p,position_name:e.target.value}))} 
               />
               <input 
+                key="pos_visas"
                 style={{...inp,marginBottom:0}} 
                 type="number" 
                 min="1" 
-                placeholder="Visas" 
+                placeholder="Visas Needed" 
                 value={newPos.required_count} 
                 onChange={e=>setNewPos(p=>({...p,required_count:Number(e.target.value)||1}))} 
               />
+              <input 
+                key="pos_salary"
+                style={{...inp,marginBottom:0}} 
+                placeholder="Salary (SAR)" 
+                value={newPos.salary} 
+                onChange={e=>setNewPos(p=>({...p,salary:e.target.value}))} 
+              />
               <button 
-                style={{background:"#10B981",color:"#fff",border:"none",borderRadius:4,padding:"8px 14px",cursor:"pointer",fontWeight:600,fontSize:12}} 
+                style={{background:"#10B981",color:"#fff",border:"none",borderRadius:4,padding:"8px 14px",cursor:"pointer",fontWeight:600,fontSize:12,whiteSpace:"nowrap"}} 
                 onClick={()=>{
                   if(newPos.position_name.trim()){
                     setTempPositions([...tempPositions,{...newPos}]);
-                    setNewPos({position_name:"",required_count:1});
+                    setNewPos({position_name:"",required_count:1,salary:""});
                   }else{
                     alert("Please enter position name");
                   }
@@ -854,7 +863,7 @@ export default function App() {
         </div>
 
         <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
-          <button style={btn()} onClick={()=>{setModal(null);setTempPositions([]);setNewPos({position_name:"",required_count:1});}}>Cancel</button>
+          <button style={btn()} onClick={()=>{setModal(null);setTempPositions([]);setNewPos({position_name:"",required_count:1,salary:""});}}>Cancel</button>
           <button style={pri} onClick={saveJob}>Create Job Order {tempPositions && tempPositions.length>0?`+ ${tempPositions.length} Position${tempPositions.length!==1?"s":""}`:""}</button>
         </div>
       </Modal>
