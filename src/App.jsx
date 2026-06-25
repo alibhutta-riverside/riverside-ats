@@ -133,7 +133,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState(null);
   const [showPos, setShowPos] = useState(null);
   const [cands, setCands] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -206,6 +206,11 @@ export default function App() {
   if (loadingAuth) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"sans-serif",color:"#6B7280"}}>Loading…</div>;
   if (!session) return <Login />;
   if (!profile) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"sans-serif",color:"#6B7280"}}>Setting up your account…</div>;
+
+  if (page === null) {
+    setPage(profile.ats_access ? "dashboard" : (profile.crm_access ? "crm" : "dashboard"));
+    return null;
+  }
 
   // ── ROLE-BASED VISIBILITY ──
   const visibleJobs = profile.role === "manager" && profile.assigned_clients?.length
@@ -365,16 +370,20 @@ export default function App() {
           </div>
         </div>
         <div style={{padding:"0 10px",flex:1}}>
-          <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"8px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Main</div>
-          <NavItem p="dashboard" icon="⬛" label="Dashboard"/>
-          <NavItem p="databank" icon="📁" label="CV Databank"/>
-          <NavItem p="candidates" icon="👥" label="In-Process Candidates"/>
-          <NavItem p="pipeline" icon="📊" label="Pipeline"/>
-          <NavItem p="jobs" icon="📋" label="Job Orders"/>
-          <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
-          <NavItem p="reports" icon="📄" label="Status Reports"/>
-          <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Sales</div>
-          <NavItem p="crm" icon="📞" label="Client CRM"/>
+          {profile.ats_access && <>
+            <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"8px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Main</div>
+            <NavItem p="dashboard" icon="⬛" label="Dashboard"/>
+            <NavItem p="databank" icon="📁" label="CV Databank"/>
+            <NavItem p="candidates" icon="👥" label="In-Process Candidates"/>
+            <NavItem p="pipeline" icon="📊" label="Pipeline"/>
+            <NavItem p="jobs" icon="📋" label="Job Orders"/>
+            <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
+            <NavItem p="reports" icon="📄" label="Status Reports"/>
+          </>}
+          {profile.crm_access && <>
+            <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Sales</div>
+            <NavItem p="crm" icon="📞" label="Client CRM"/>
+          </>}
           {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
@@ -656,23 +665,23 @@ export default function App() {
           )}
 
           {/* ══ CRM ══ */}
-          {page==="crm"&&(
+          {page==="crm"&&profile.crm_access&&(
             <div>
               <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-                {["dashboard","clients","campaigns","reports"].map(v=>(
+                {["dashboard","clients","campaigns","reports"].filter(v=>profile.crm_sections?.includes(v)).map(v=>(
                   <button key={v} style={btn({background:crmView===v?"#6366F1":"#fff",color:crmView===v?"#fff":"#374151"})}
                     onClick={()=>{setCrmView(v);setCrmClientId(null);}}>
                     {v.charAt(0).toUpperCase()+v.slice(1)}
                   </button>
                 ))}
               </div>
-              {crmView==="dashboard" && <CrmDashboard currentUser={profile} />}
-              {crmView==="clients" && !crmClientId && <ClientList onSelectClient={setCrmClientId} currentUser={profile} />}
-              {crmView==="clients" && crmClientId && (
+              {crmView==="dashboard" && profile.crm_sections?.includes("dashboard") && <CrmDashboard currentUser={profile} />}
+              {crmView==="clients" && profile.crm_sections?.includes("clients") && !crmClientId && <ClientList onSelectClient={setCrmClientId} currentUser={profile} />}
+              {crmView==="clients" && profile.crm_sections?.includes("clients") && crmClientId && (
                 <ClientDetail clientId={crmClientId} currentUser={profile} onBack={()=>setCrmClientId(null)} />
               )}
-              {crmView==="campaigns" && <CampaignManager currentUser={profile} />}
-              {crmView==="reports" && <CrmReports />}
+              {crmView==="campaigns" && profile.crm_sections?.includes("campaigns") && <CampaignManager currentUser={profile} />}
+              {crmView==="reports" && profile.crm_sections?.includes("reports") && <CrmReports />}
             </div>
           )}
 
@@ -991,6 +1000,23 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
     fetchStaff();
   };
 
+  const toggleAtsAccess = async (id, current) => {
+    await supabase.from("profiles").update({ ats_access: !current }).eq("id", id);
+    fetchStaff();
+  };
+
+  const toggleCrmAccess = async (id, current) => {
+    await supabase.from("profiles").update({ crm_access: !current, crm_sections: !current ? ['dashboard','clients','campaigns','reports'] : [] }).eq("id", id);
+    fetchStaff();
+  };
+
+  const toggleCrmSection = async (id, section, current) => {
+    const list = current || [];
+    const updated = list.includes(section) ? list.filter(s=>s!==section) : [...list, section];
+    await supabase.from("profiles").update({ crm_sections: updated }).eq("id", id);
+    fetchStaff();
+  };
+
   const generatePassword = () => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$";
     let pwd = "";
@@ -1070,7 +1096,7 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
 
       <div style={S.card}>
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead><tr>{["Name","Email","Role","Client Access (Managers only)","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Name","Email","Role","ATS Access","CRM Access","CRM Sections","Client Access (Managers only)","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {staff.map(s=>(
               <tr key={s.id}>
@@ -1080,6 +1106,22 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
                   <select style={{ ...inp, width:"auto", fontSize:12 }} value={s.role} onChange={e=>updateRole(s.id, e.target.value)}>
                     <option value="admin">Admin</option><option value="manager">Manager</option><option value="staff">Staff</option>
                   </select>
+                </td>
+                <td style={S.td}>
+                  <button style={{...btn({padding:"4px 10px",fontSize:11}), background:s.ats_access?"#ECFDF5":"#FEF2F2", color:s.ats_access?"#059669":"#DC2626", borderColor:s.ats_access?"#A7F3D0":"#FEE2E2"}} onClick={()=>toggleAtsAccess(s.id, s.ats_access)}>{s.ats_access?"✓ Enabled":"✕ Disabled"}</button>
+                </td>
+                <td style={S.td}>
+                  <button style={{...btn({padding:"4px 10px",fontSize:11}), background:s.crm_access?"#ECFDF5":"#FEF2F2", color:s.crm_access?"#059669":"#DC2626", borderColor:s.crm_access?"#A7F3D0":"#FEE2E2"}} onClick={()=>toggleCrmAccess(s.id, s.crm_access)}>{s.crm_access?"✓ Enabled":"✕ Disabled"}</button>
+                </td>
+                <td style={S.td}>
+                  {s.crm_access ? (
+                    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                      {["dashboard","clients","campaigns","reports"].map(sec=>(
+                        <button key={sec} style={{ ...btn({ padding:"3px 7px", fontSize:10 }), background:(s.crm_sections||[]).includes(sec)?"#EEF2FF":"#fff", color:(s.crm_sections||[]).includes(sec)?"#6366F1":"#9CA3AF", borderColor:(s.crm_sections||[]).includes(sec)?"#C7D2FE":"#E5E7EB" }}
+                          onClick={()=>toggleCrmSection(s.id, sec, s.crm_sections)}>{sec}</button>
+                      ))}
+                    </div>
+                  ) : <span style={{fontSize:11,color:"#D1D5DB"}}>—</span>}
                 </td>
                 <td style={S.td}>
                   {s.role==="manager" ? (
