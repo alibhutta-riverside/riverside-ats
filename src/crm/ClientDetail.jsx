@@ -5,6 +5,9 @@ export default function ClientDetail({ clientId, currentUser, onBack }) {
   const [client, setClient] = useState(null);
   const [history, setHistory] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editForm, setEditForm] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     interaction_type: 'call', summary: '', feedback: '', outcome: 'neutral',
     next_followup_date: '', next_followup_notes: '',
@@ -31,6 +34,34 @@ export default function ClientDetail({ clientId, currentUser, onBack }) {
     load();
   }
 
+  function openEdit() {
+    setEditForm({
+      company_name: client.company_name || '',
+      contact_person: client.contact_person || '',
+      designation: client.designation || '',
+      email: client.email || '',
+      phone: client.phone || '',
+      whatsapp: client.whatsapp || '',
+      country: client.country || '',
+      sector: client.sector || '',
+      client_type: client.client_type || 'potential',
+      source: client.source || '',
+      notes: client.notes || '',
+    });
+    setShowEditForm(true);
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    if (!editForm.company_name.trim()) { alert('Company name is required'); return; }
+    setSaving(true);
+    const { error } = await supabase.from('clients').update({ ...editForm, updated_at: new Date().toISOString() }).eq('id', clientId);
+    setSaving(false);
+    if (error) { alert(error.message); return; }
+    setShowEditForm(false);
+    load();
+  }
+
   async function deleteClient() {
     if (!window.confirm(`Delete ${client.company_name}? This removes all contact history too. This cannot be undone.`)) return;
     await supabase.from('clients').delete().eq('id', clientId);
@@ -46,8 +77,36 @@ export default function ClientDetail({ clientId, currentUser, onBack }) {
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 13, cursor: "pointer", padding: 0 }}>← Back</button>
-        <button onClick={deleteClient} style={{ background: "none", border: "1px solid #FEE2E2", color: "#EF4444", fontSize: 12, cursor: "pointer", padding: "5px 10px", borderRadius: 6 }}>Delete Client</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={openEdit} style={{ background: "none", border: "1px solid #C7D2FE", color: "#6366F1", fontSize: 12, cursor: "pointer", padding: "5px 10px", borderRadius: 6 }}>Edit Client</button>
+          <button onClick={deleteClient} style={{ background: "none", border: "1px solid #FEE2E2", color: "#EF4444", fontSize: 12, cursor: "pointer", padding: "5px 10px", borderRadius: 6 }}>Delete Client</button>
+        </div>
       </div>
+
+      {showEditForm && editForm && (
+        <form onSubmit={saveEdit} style={{ border: "1px solid #C7D2FE", borderRadius: 12, padding: 16, background: "#EEF2FF", marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#3730A3" }}>Edit Client Details</div>
+          <input style={inp} placeholder="Company name *" value={editForm.company_name} onChange={(e) => setEditForm({ ...editForm, company_name: e.target.value })} />
+          <input style={inp} placeholder="Contact person" value={editForm.contact_person} onChange={(e) => setEditForm({ ...editForm, contact_person: e.target.value })} />
+          <input style={inp} placeholder="Designation" value={editForm.designation} onChange={(e) => setEditForm({ ...editForm, designation: e.target.value })} />
+          <input style={inp} placeholder="Email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+          <input style={inp} placeholder="Phone" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+          <input style={inp} placeholder="WhatsApp" value={editForm.whatsapp} onChange={(e) => setEditForm({ ...editForm, whatsapp: e.target.value })} />
+          <input style={inp} placeholder="Country" value={editForm.country} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} />
+          <input style={inp} placeholder="Sector" value={editForm.sector} onChange={(e) => setEditForm({ ...editForm, sector: e.target.value })} />
+          <select style={inp} value={editForm.client_type} onChange={(e) => setEditForm({ ...editForm, client_type: e.target.value })}>
+            <option value="potential">Potential</option><option value="present">Present</option><option value="past">Past</option>
+          </select>
+          <input style={inp} placeholder="Source" value={editForm.source} onChange={(e) => setEditForm({ ...editForm, source: e.target.value })} />
+          <textarea style={{ ...inp, minHeight: 50, resize: "vertical" }} placeholder="Notes" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" disabled={saving} style={{ flex: 1, background: "#6366F1", color: "#fff", border: "none", borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+            <button type="button" onClick={() => setShowEditForm(false)} style={btn({ flex: 1 })}>Cancel</button>
+          </div>
+        </form>
+      )}
 
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 700, fontSize: 16 }}>{client.company_name}</div>
