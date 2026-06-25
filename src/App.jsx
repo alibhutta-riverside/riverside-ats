@@ -3,15 +3,26 @@ import { supabase } from "./lib/supabase";
 import { STAGES, STAGE_MAP, COUNTRIES, YNP, PP_STATUSES, TRADE_TEST_OPTS, EMPTY_CAND, EMPTY_JOB, uid, fmtDate, today, todayISO, daysUntil, sanitizeForDb } from "./lib/constants";
 import Login from "./components/Login";
 import Databank from "./components/Databank";
+import CrmDashboard from "./crm/CrmDashboard";
+import ClientList from "./crm/ClientList";
+import ClientDetail from "./crm/ClientDetail";
+import CampaignManager from "./crm/CampaignManager";
+import CrmReports from "./crm/CrmReports";
 import * as XLSX from "xlsx";
 
 // ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
-function exportExcel(cands, jobs, jobId) {
+function exportExcel(cands, jobs, jobId, positions=[]) {
   const job = jobs.find(j=>j.id===jobId);
   if (!job) return;
   const list = cands.filter(c=>c.job_id===jobId);
   const wb = XLSX.utils.book_new();
   const filled = list.filter(c=>c.stage==="deployed").length;
+  const allPos = [
+    { position_name: job.position, required_count: job.vacancies, salary: job.salary },
+    ...positions.filter(p=>p.job_id===jobId)
+  ];
+  const totalVac = allPos.reduce((s,p)=>s+(Number(p.required_count)||0),0);
+  const positionLabel = allPos.map(p=>p.position_name).join(", ");
 
   const coverRows = [
     ["","","","","","",""],
@@ -22,8 +33,11 @@ function exportExcel(cands, jobs, jobId) {
     ["","","","","","",""],
     ["","Client:",job.client,"","Country:",job.country,""],
     ["","Order Ref:",job.ref,"","City:",job.city,""],
-    ["","Position:",job.position,"","Vacancies:",job.vacancies,""],
     ["","Report Date:",today(),"","Deadline:",fmtDate(job.deadline),""],
+    ["","","","","","",""],
+    ["","JOB POSITIONS","","","","",""],
+    ["","Position","Vacancies","","Salary (SAR)","",""],
+    ...allPos.map(p=>["",p.position_name,p.required_count,"",p.salary||"—","",""]),
     ["","","","","","",""],
     ["","PIPELINE SUMMARY","","","","",""],
     ["","","","","","",""],
@@ -34,7 +48,7 @@ function exportExcel(cands, jobs, jobId) {
   stageRows.push(["","TOTAL CANDIDATES",list.length,"","DEPLOYED",filled,""]);
   const wsCover = XLSX.utils.aoa_to_sheet([...coverRows,...stageRows]);
   wsCover["!cols"] = [{wch:3},{wch:30},{wch:28},{wch:3},{wch:18},{wch:22},{wch:3}];
-  wsCover["!merges"] = [{s:{r:1,c:1},e:{r:1,c:5}},{s:{r:2,c:1},e:{r:2,c:5}},{s:{r:4,c:1},e:{r:4,c:5}},{s:{r:11,c:1},e:{r:11,c:5}}];
+  wsCover["!merges"] = [{s:{r:1,c:1},e:{r:1,c:5}},{s:{r:2,c:1},e:{r:2,c:5}},{s:{r:4,c:1},e:{r:4,c:5}},{s:{r:10,c:1},e:{r:10,c:5}},{s:{r:13+allPos.length,c:1},e:{r:13+allPos.length,c:5}}];
   XLSX.utils.book_append_sheet(wb, wsCover, "Summary");
 
   const headers = ["S.No","Full Name","Father Name","CNIC","Phone","Trade","Exp.","Passport","Pass. Expiry","Stage",
@@ -47,14 +61,14 @@ function exportExcel(cands, jobs, jobId) {
     c.medical_status,c.medical_date?fmtDate(c.medical_date):"",c.medical_expiry?fmtDate(c.medical_expiry):"",c.trade_test_status,c.trade_test_date?fmtDate(c.trade_test_date):"",
     c.pp_sub_status,c.pp_sub_date?fmtDate(c.pp_sub_date):"",c.pp_dispatch_date?fmtDate(c.pp_dispatch_date):"",c.pp_received_date?fmtDate(c.pp_received_date):"",c.stamping_date?fmtDate(c.stamping_date):"",c.beoe_status,c.beoe_permission_no||"",c.beoe_registration_no||"",c.beoe_fee_paid||"",c.flight_date?fmtDate(c.flight_date):"",c.objection,c.remarks
   ]);
-  const wsData = XLSX.utils.aoa_to_sheet([[`STATUS REPORT — ${job.client.toUpperCase()} | ${job.ref} | ${job.position} | ${today()}`],[],headers,...rows]);
+  const wsData = XLSX.utils.aoa_to_sheet([[`STATUS REPORT — ${job.client.toUpperCase()} | ${job.ref} | ${positionLabel} | ${today()}`],[],headers,...rows]);
   wsData["!cols"] = headers.map(()=>({wch:16}));
   wsData["!merges"] = [{s:{r:0,c:0},e:{r:0,c:33}}];
   XLSX.utils.book_append_sheet(wb, wsData, "Candidate Status");
 
   const clientHeaders = ["S.No","Name","Trade","Passport No.","Stage","Medical","Visa No.","Flight Date","Status / Remarks"];
   const clientRows = list.map((c,i)=>[i+1,c.name,c.trade,c.passport,STAGE_MAP[c.stage]?.label||c.stage,c.medical_status||(c.medical_date?"Done":"—"),c.visa_no||"—",c.flight_date?fmtDate(c.flight_date):"—",c.objection?`⚠ ${c.objection}`:c.remarks||"In process"]);
-  const wsClient = XLSX.utils.aoa_to_sheet([[`CLIENT UPDATE — ${job.client} | ${job.position} | Ref: ${job.ref} | ${today()}`],[`Riverside Enterprises Recruitment Consultants, Lahore | Vacancies: ${job.vacancies} | Deployed: ${filled}`],[],clientHeaders,...clientRows]);
+  const wsClient = XLSX.utils.aoa_to_sheet([[`CLIENT UPDATE — ${job.client} | ${positionLabel} | Ref: ${job.ref} | ${today()}`],[`Riverside Enterprises Recruitment Consultants, Lahore | Total Vacancies: ${totalVac} | Deployed: ${filled}`],[],clientHeaders,...clientRows]);
   wsClient["!cols"] = [{wch:5},{wch:22},{wch:16},{wch:14},{wch:22},{wch:10},{wch:13},{wch:13},{wch:30}];
   wsClient["!merges"] = [{s:{r:0,c:0},e:{r:0,c:8}},{s:{r:1,c:0},e:{r:1,c:8}}];
   XLSX.utils.book_append_sheet(wb, wsClient, "Client Update");
@@ -62,14 +76,20 @@ function exportExcel(cands, jobs, jobId) {
   XLSX.writeFile(wb, `Riverside_${job.client.replace(/\s+/g,"_")}_${job.ref}_${today().replace(/\//g,"-")}.xlsx`);
 }
 
-function buildWA(cands, jobs, jobId) {
+function buildWA(cands, jobs, jobId, positions=[]) {
   const job = jobs.find(j=>j.id===jobId);
   if (!job) return "";
   const list = cands.filter(c=>c.job_id===jobId);
   const deployed = list.filter(c=>c.stage==="deployed").length;
   const inProcess = list.filter(c=>!["deployed","rejected"].includes(c.stage)).length;
   const lines = STAGES.map(s=>{ const n=list.filter(c=>c.stage===s.id).length; return n>0?`  ▸ ${s.label}: *${n}*`:null; }).filter(Boolean).join("\n");
-  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Position:* ${job.position}\n*Country:* ${job.country}, ${job.city}\n*Total Vacancies:* ${job.vacancies}\n\n*Pipeline Breakdown:*\n${lines}\n\n✅ *Deployed:* ${deployed} of ${job.vacancies}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
+  const allPos = [
+    { position_name: job.position, required_count: job.vacancies, salary: job.salary },
+    ...positions.filter(p=>p.job_id===jobId)
+  ];
+  const totalVac = allPos.reduce((s,p)=>s+(Number(p.required_count)||0),0);
+  const positionLines = allPos.map(p=>`  ▸ ${p.position_name} — ${p.required_count} vacancies${p.salary?` @ SAR ${p.salary}`:""}`).join("\n");
+  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Country:* ${job.country}, ${job.city}\n\n*Job Positions:*\n${positionLines}\n*Total Vacancies:* ${totalVac}\n\n*Pipeline Breakdown:*\n${lines}\n\n✅ *Deployed:* ${deployed} of ${totalVac}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
 }
 
 // ─── SMALL COMPONENTS ────────────────────────────────────────────────────────
@@ -100,16 +120,24 @@ const Avatar = ({ url, name, size=36 }) => url
   : <div style={{ width:size, height:size, borderRadius:8, background:"#F3F4F6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:size/3, fontWeight:600, color:"#9CA3AF", flexShrink:0 }}>{(name||"?").charAt(0).toUpperCase()}</div>;
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
+function FR({label,children,span}) {
+  return (
+    <div style={{marginBottom:12,gridColumn:span?"1/-1":"auto"}}>
+      <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [page, setPage] = useState("dashboard");
+  const [showPos, setShowPos] = useState(null);
   const [cands, setCands] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [positions, setPositions] = useState([]);
-  const [showPositionModal, setShowPositionModal] = useState(null); // job_id or null
-  const [newPosition, setNewPosition] = useState({ position_name: "", required_count: 1 });
   const [log, setLog] = useState([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
@@ -119,11 +147,13 @@ export default function App() {
   const [cf, setCf] = useState(EMPTY_CAND);
   const [jf, setJf] = useState(EMPTY_JOB);
   const [tempPositions, setTempPositions] = useState([]);
-  const [newPos, setNewPos] = useState({ position_name: "", required_count: 1 });
+  const [newPos, setNewPos] = useState({position_name:"",required_count:1,salary:""});
   const [search, setSearch] = useState("");
   const [stageFil, setStageFil] = useState("");
   const [jobFil, setJobFil] = useState("");
   const [detailId, setDetailId] = useState(null);
+  const [crmView, setCrmView] = useState("dashboard"); // 'dashboard' | 'clients' | 'campaigns'
+  const [crmClientId, setCrmClientId] = useState(null);
   const [dtab, setDtab] = useState("overview");
   const [rptJob, setRptJob] = useState("");
   const [waText, setWaText] = useState("");
@@ -146,7 +176,7 @@ export default function App() {
     const { data: jobsData } = await supabase.from("job_orders").select("*").order("created_at",{ascending:false});
     const { data: candsData } = await supabase.from("candidates").select("*").order("added_date",{ascending:false});
     const { data: logData } = await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(60);
-    const { data: posData } = await supabase.from("job_positions").select("*").order("created_at",{ascending:false});
+    const { data: posData } = await supabase.from("job_positions").select("*");
     setJobs(jobsData||[]);
     setCands(candsData||[]);
     setPositions(posData||[]);
@@ -159,6 +189,19 @@ export default function App() {
     setLog(l=>[{msg,time:today()},...l].slice(0,60));
     if (profile) await supabase.from("activity_log").insert([{ message:msg, created_by:profile.id }]);
   };
+
+  const Modal = useCallback(({id,title,wide,children}) => modal!==id?null:(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+         onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:wide||560,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 25px 50px rgba(0,0,0,.2)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
+          <span style={{fontSize:15,fontWeight:700,color:"#111827"}}>{title}</span>
+          <button style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontSize:13,color:"#374151",fontFamily:"inherit"}} onClick={()=>setModal(null)}>✕</button>
+        </div>
+        <div style={{padding:"20px 22px"}}>{children}</div>
+      </div>
+    </div>
+  ), [modal]);
 
   if (loadingAuth) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"sans-serif",color:"#6B7280"}}>Loading…</div>;
   if (!session) return <Login />;
@@ -178,11 +221,10 @@ export default function App() {
     if (!cf.name.trim()) { alert("Full name is required"); return; }
     if (!cf.cnic.trim()) { alert("CNIC/ID is required"); return; }
     
-    // Check for duplicate CNIC only when adding new candidate
     if (!editId) {
       const { data: existing } = await supabase.from("candidates").select("id").eq("cnic", cf.cnic).limit(1);
       if (existing && existing.length > 0) {
-        alert(`⚠️ Candidate with CNIC "${cf.cnic}" already exists in the system. Cannot add duplicate.`);
+        alert(`⚠️ Candidate with CNIC "${cf.cnic}" already exists. Cannot add duplicate.`);
         return;
       }
     }
@@ -205,23 +247,26 @@ export default function App() {
   const saveJob = async () => {
     if (!jf.ref.trim() || !jf.client.trim()) { alert("Reference and client required"); return; }
     const payload = sanitizeForDb({ ...jf, vacancies:Number(jf.vacancies)||1 });
-    const { data: jobData, error: jobError } = await supabase.from("job_orders").insert([{ ...payload, created_by: profile.id }]).select();
-    if (jobError) { alert(jobError.message); return; }
+    const { data: jobData, error } = await supabase.from("job_orders").insert([{ ...payload, created_by: profile.id }]).select();
+    if (error) { alert(error.message); return; }
     
-    // Save positions if any
-    if (jobData && jobData[0] && tempPositions.length > 0) {
+    // Save positions if any were added
+    if (jobData && jobData[0] && tempPositions && tempPositions.length > 0) {
       const jobId = jobData[0].id;
       const posPayload = tempPositions.map(p => ({
         job_id: jobId,
         position_name: p.position_name,
-        required_count: Number(p.required_count)||1
+        required_count: Number(p.required_count) || 1,
+        salary: p.salary || ""
       }));
-      const { error: posError } = await supabase.from("job_positions").insert(posPayload);
-      if (posError) { alert("Job created but positions failed: " + posError.message); }
+      await supabase.from("job_positions").insert(posPayload);
     }
     
-    addLog(`New order: ${jf.ref} — ${jf.client}${tempPositions.length > 0 ? ` (${tempPositions.length} positions)` : ""}`);
-    setModal(null); setJf(EMPTY_JOB); setTempPositions([]); setNewPos({ position_name: "", required_count: 1 });
+    addLog(`New order: ${jf.ref} — ${jf.client}${tempPositions && tempPositions.length > 0 ? ` (${tempPositions.length} positions)` : ""}`);
+    setModal(null); 
+    setJf(EMPTY_JOB); 
+    setTempPositions([]);
+    setNewPos({position_name:"",required_count:1,salary:""});
     fetchAll();
   };
 
@@ -244,26 +289,14 @@ export default function App() {
     fetchAll();
   };
 
-  const addPosition = async (jobId) => {
-    if (!newPosition.position_name.trim()) { alert("Position name required"); return; }
-    const { error } = await supabase.from("job_positions").insert([{
-      job_id: jobId,
-      position_name: newPosition.position_name,
-      required_count: Number(newPosition.required_count)||1
-    }]);
-    if (error) { alert(error.message); return; }
-    addLog(`Added position: ${newPosition.position_name}`);
-    setNewPosition({ position_name: "", required_count: 1 });
-    fetchAll();
-  };
-
-  const deletePosition = async (posId) => {
+  const delPos = async (posId) => {
     if (!window.confirm("Delete this position?")) return;
     const { error } = await supabase.from("job_positions").delete().eq("id", posId);
     if (error) { alert(error.message); return; }
     addLog("Position deleted");
     fetchAll();
   };
+  
   const moveStage = async (cid, sid) => {
     const { error } = await supabase.from("candidates").update({ stage: sid }).eq("id", cid);
     if (error) { alert(error.message); return; }
@@ -303,26 +336,6 @@ export default function App() {
     <button style={nav(p)} onClick={()=>{setPage(p);setMobileNavOpen(false);}}><span style={{fontSize:16}}>{icon}</span>{label}</button>
   );
 
-  const FR = ({label,children,span}) => (
-    <div style={{marginBottom:12,gridColumn:span?"1/-1":"auto"}}>
-      <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:4,textTransform:"uppercase",letterSpacing:.5}}>{label}</div>
-      {children}
-    </div>
-  );
-
-  const Modal = ({id,title,wide,children}) => modal!==id?null:(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
-         onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-      <div style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:wide||560,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 25px 50px rgba(0,0,0,.2)"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"18px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
-          <span style={{fontSize:15,fontWeight:700,color:"#111827"}}>{title}</span>
-          <button style={btn({padding:"4px 10px"})} onClick={()=>setModal(null)}>✕</button>
-        </div>
-        <div style={{padding:"20px 22px"}}>{children}</div>
-      </div>
-    </div>
-  );
-
   const canDelete = profile.role === "admin";
   const canManage = profile.role === "admin" || profile.role === "manager";
 
@@ -360,7 +373,8 @@ export default function App() {
           <NavItem p="jobs" icon="📋" label="Job Orders"/>
           <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
           <NavItem p="reports" icon="📄" label="Status Reports"/>
-          <NavItem p="crm" icon="💼" label="CRM Dashboard"/>
+          <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Sales</div>
+          <NavItem p="crm" icon="📞" label="Client CRM"/>
           {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
@@ -378,7 +392,7 @@ export default function App() {
           <div>
             <div style={{fontWeight:700,fontSize:16}}>
               {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="candidates"&&"In-Process Candidates"}
-              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"CRM Dashboard"}{page==="staff"&&"Staff Access Management"}
+              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"Client CRM"}{page==="staff"&&"Staff Access Management"}
             </div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
           </div>
@@ -557,51 +571,44 @@ export default function App() {
               {visibleJobs.map(j=>{
                 const jcands=assignedCands.filter(c=>c.job_id===j.id);
                 const dep=jcands.filter(c=>c.stage==="deployed").length;
-                const pct=j.vacancies?Math.min(100,Math.round(dep/j.vacancies*100)):0;
+                const totalVac=(Number(j.vacancies)||0) + positions.filter(p=>p.job_id===j.id).reduce((sum,p)=>sum+(Number(p.required_count)||0),0);
+                const pct=totalVac?Math.min(100,Math.round(dep/totalVac*100)):0;
                 const statusColor=j.status==="Open"?"#10B981":j.status==="Filled"?"#6366F1":"#6B7280";
+                const allPositions=[
+                  { position_name:j.position, required_count:j.vacancies, salary:j.salary },
+                  ...positions.filter(p=>p.job_id===j.id)
+                ];
                 return <div key={j.id} style={{...card,padding:0}}>
                   <div style={{padding:"16px 18px",borderBottom:"1px solid #F3F4F6"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                       <div><div style={{fontWeight:700,fontSize:15}}>{j.client}</div><div style={{fontSize:12,color:"#6B7280",marginTop:2}}>{j.ref} · {j.country}</div></div>
                       <span style={{background:`${statusColor}18`,color:statusColor,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:600}}>{j.status}</span>
                     </div>
-                    <div style={{fontSize:13,fontWeight:600,color:"#374151"}}>{j.position}</div>
                   </div>
                   <div style={{padding:"12px 18px"}}>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-                      {[["Vacancies",j.vacancies],["Deployed",dep],["Salary","SAR "+(j.salary||"—")],["Contact",j.contact||"—"]].map(([k,v])=>(
+                      {[["Total Vacancies",totalVac],["Deployed",dep],["Contact",j.contact||"—"],["Status",j.status]].map(([k,v])=>(
                         <div key={k}><div style={{fontSize:11,color:"#9CA3AF"}}>{k}</div><div style={{fontSize:13,fontWeight:600}}>{v}</div></div>
                       ))}
                     </div>
+
+                    {/* ALL JOB POSITIONS - UNIFIED LIST, NO DISTINCTION */}
+                    <div style={{marginBottom:12,background:"#F9FAFB",borderRadius:8,padding:"10px 12px",border:"1px solid #E5E7EB"}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#6B7280",marginBottom:6,textTransform:"uppercase"}}>Job Positions:</div>
+                      {allPositions.map((p,idx)=>(
+                        <div key={idx} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:12,borderTop:idx>0?"1px solid #E5E7EB":"none",paddingTop:idx>0?6:4}}>
+                          <span style={{fontWeight:600,color:"#374151"}}>{p.position_name}</span>
+                          <span style={{color:"#6B7280"}}>Vacancies: {p.required_count} | SAR {p.salary||"—"}</span>
+                        </div>
+                      ))}
+                    </div>
+
                     <div style={{height:6,borderRadius:3,background:"#F3F4F6",marginBottom:10}}><div style={{height:6,borderRadius:3,background:"#10B981",width:`${pct}%`}}/></div>
                     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                       <button style={btn({fontSize:12,flex:1})} onClick={()=>{setJobFil(j.id);setPage("pipeline");}}>View Pipeline</button>
                       <button style={btn({fontSize:12,flex:1,color:"#6366F1",borderColor:"#C7D2FE"})} onClick={()=>{setRptJob(j.id);setPage("reports");}}>Export Report</button>
-                      <button style={btn({fontSize:12,color:"#9CA3AF",borderColor:"#E5E7EB"})} onClick={()=>setShowPositionModal(showPositionModal===j.id?null:j.id)}>🔷 Positions</button>
                       {canManage && <button style={btn({fontSize:12,color:"#EF4444",borderColor:"#FEE2E2",padding:"7px 10px"})} onClick={()=>delJob(j.id)}>✕</button>}
                     </div>
-                    {showPositionModal===j.id && (
-                      <div style={{marginTop:12,borderTop:"1px solid #F3F4F6",paddingTop:12}}>
-                        <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Positions for this job:</div>
-                        {positions.filter(p=>p.job_id===j.id).length>0 ? (
-                          <div style={{marginBottom:10}}>
-                            {positions.filter(p=>p.job_id===j.id).map(p=>(
-                              <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid #F9FAFB"}}>
-                                <div><div style={{fontSize:11,fontWeight:600}}>{p.position_name}</div><div style={{fontSize:10,color:"#9CA3AF"}}>Need: {p.required_count} | Filled: {p.filled_count}</div></div>
-                                <button style={btn({padding:"3px 8px",fontSize:10,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>deletePosition(p.id)}>✕</button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : <div style={{fontSize:11,color:"#9CA3AF",marginBottom:10}}>No positions added yet</div>}
-                        {canManage && (
-                          <div style={{display:"flex",gap:6}}>
-                            <input style={{...inp,flex:1,marginBottom:0,padding:"6px 8px",fontSize:11}} placeholder="Position (Chef, Driver, etc.)" value={newPosition.position_name} onChange={e=>setNewPosition(p=>({...p,position_name:e.target.value}))} />
-                            <input style={{...inp,width:50,marginBottom:0,padding:"6px 8px",fontSize:11}} type="number" min="1" placeholder="Qty" value={newPosition.required_count} onChange={e=>setNewPosition(p=>({...p,required_count:Number(e.target.value)||1}))} />
-                            <button style={btn({fontSize:11,padding:"6px 10px"})} onClick={()=>addPosition(j.id)}>Add</button>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>;
               })}
@@ -619,8 +626,8 @@ export default function App() {
                     <option value="">— Select client / job order —</option>
                     {visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} ({j.position})</option>)}
                   </select>
-                  <button style={{...pri,opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&exportExcel(cands,jobs,rptJob)}>📊 Export to Excel</button>
-                  <button style={{...btn({background:"#25D366",color:"#fff",border:"none"}),opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&setWaText(buildWA(cands,jobs,rptJob))}>📱 WhatsApp Update</button>
+                  <button style={{...pri,opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&exportExcel(cands,jobs,rptJob,positions)}>📊 Export to Excel</button>
+                  <button style={{...btn({background:"#25D366",color:"#fff",border:"none"}),opacity:rptJob?1:.5}} disabled={!rptJob} onClick={()=>rptJob&&setWaText(buildWA(cands,jobs,rptJob,positions))}>📱 WhatsApp Update</button>
                 </div>
               </div>
               {waText&&(
@@ -648,21 +655,24 @@ export default function App() {
             </div>
           )}
 
-          {/* ══ CRM DASHBOARD ══ */}
+          {/* ══ CRM ══ */}
           {page==="crm"&&(
-            <div style={{...card,padding:"20px 22px"}}>
-              <div style={{fontWeight:700,fontSize:16,marginBottom:8}}>💼 CRM Dashboard</div>
-              <div style={{color:"#6B7280",marginBottom:20}}>Client interactions, campaigns, and follow-up tracking</div>
-              <div style={{background:"#EEF2FF",border:"1px solid #C7D2FE",borderRadius:12,padding:"16px 18px"}}>
-                <div style={{fontWeight:600,color:"#3730A3",marginBottom:8}}>📋 CRM Features</div>
-                <div style={{fontSize:13,color:"#4338CA",lineHeight:1.8}}>
-                  • Track client interactions and follow-ups<br/>
-                  • Manage marketing campaigns<br/>
-                  • Monitor campaign recipient status<br/>
-                  • Set automated reminders<br/>
-                  • Alert management system
-                </div>
+            <div>
+              <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+                {["dashboard","clients","campaigns","reports"].map(v=>(
+                  <button key={v} style={btn({background:crmView===v?"#6366F1":"#fff",color:crmView===v?"#fff":"#374151"})}
+                    onClick={()=>{setCrmView(v);setCrmClientId(null);}}>
+                    {v.charAt(0).toUpperCase()+v.slice(1)}
+                  </button>
+                ))}
               </div>
+              {crmView==="dashboard" && <CrmDashboard currentUser={profile} />}
+              {crmView==="clients" && !crmClientId && <ClientList onSelectClient={setCrmClientId} currentUser={profile} />}
+              {crmView==="clients" && crmClientId && (
+                <ClientDetail clientId={crmClientId} currentUser={profile} onBack={()=>setCrmClientId(null)} />
+              )}
+              {crmView==="campaigns" && <CampaignManager currentUser={profile} />}
+              {crmView==="reports" && <CrmReports />}
             </div>
           )}
 
@@ -767,15 +777,15 @@ export default function App() {
       {/* ══ CANDIDATE MODAL ══ */}
       <Modal id="cand" title={editId?"Edit Candidate":"Add New Candidate"} wide={640}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
-          <FR label="Full Name *"><input style={inp} value={cf.name} onChange={e=>setCf(f=>({...f,name:e.target.value}))} /></FR>
-          <FR label="Father's Name"><input style={inp} value={cf.father_name} onChange={e=>setCf(f=>({...f,father_name:e.target.value}))} /></FR>
-          <FR label="CNIC *"><input style={inp} value={cf.cnic} onChange={e=>setCf(f=>({...f,cnic:e.target.value}))} /></FR>
-          <FR label="Phone"><input style={inp} value={cf.phone} onChange={e=>setCf(f=>({...f,phone:e.target.value}))} /></FR>
-          <FR label="Trade / Position *"><input style={inp} value={cf.trade} onChange={e=>setCf(f=>({...f,trade:e.target.value}))} /></FR>
-          <FR label="Passport No."><input style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
-          <FR label="Passport Expiry"><input style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
-          <FR label="Stage"><select style={inp} value={cf.stage} onChange={e=>setCf(f=>({...f,stage:e.target.value}))}>{STAGES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></FR>
-          <FR label="Job Order"><select style={inp} value={cf.job_id||""} onChange={e=>setCf(f=>({...f,job_id:e.target.value||null}))}><option value="">— Unassigned —</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client}</option>)}</select></FR>
+          <FR label="Full Name *"><input key="name" style={inp} value={cf.name} onChange={e=>setCf(f=>({...f,name:e.target.value}))} /></FR>
+          <FR label="Father's Name"><input key="father_name" style={inp} value={cf.father_name} onChange={e=>setCf(f=>({...f,father_name:e.target.value}))} /></FR>
+          <FR label="CNIC *"><input key="cnic" style={inp} value={cf.cnic} onChange={e=>setCf(f=>({...f,cnic:e.target.value}))} /></FR>
+          <FR label="Phone"><input key="phone" style={inp} value={cf.phone} onChange={e=>setCf(f=>({...f,phone:e.target.value}))} /></FR>
+          <FR label="Trade / Position *"><input key="trade" style={inp} value={cf.trade} onChange={e=>setCf(f=>({...f,trade:e.target.value}))} /></FR>
+          <FR label="Passport No."><input key="passport" style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
+          <FR label="Passport Expiry"><input key="passport_expiry" style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
+          <FR label="Stage"><select key="stage" style={inp} value={cf.stage} onChange={e=>setCf(f=>({...f,stage:e.target.value}))}>{STAGES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></FR>
+          <FR label="Job Order"><select key="job_id" style={inp} value={cf.job_id||""} onChange={e=>setCf(f=>({...f,job_id:e.target.value||null}))}><option value="">— Unassigned —</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client}</option>)}</select></FR>
 
           <FR label="Offer Letter"><select style={inp} value={cf.offer_letter} onChange={e=>setCf(f=>({...f,offer_letter:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
           <FR label="Contract Signed"><select style={inp} value={cf.contract} onChange={e=>setCf(f=>({...f,contract:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
@@ -810,43 +820,86 @@ export default function App() {
       {/* ══ JOB MODAL ══ */}
       <Modal id="job" title="New Job Order">
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
-          <FR label="Order Reference *"><input style={inp} value={jf.ref} onChange={e=>setJf(f=>({...f,ref:e.target.value}))} /></FR>
-          <FR label="Client / Company *"><input style={inp} value={jf.client} onChange={e=>setJf(f=>({...f,client:e.target.value}))} /></FR>
-          <FR label="Country"><select style={inp} value={jf.country} onChange={e=>setJf(f=>({...f,country:e.target.value}))}>{COUNTRIES.map(c=><option key={c}>{c}</option>)}</select></FR>
-          <FR label="City"><input style={inp} value={jf.city} onChange={e=>setJf(f=>({...f,city:e.target.value}))} /></FR>
-          <FR label="Position / Trade *"><input style={inp} value={jf.position} onChange={e=>setJf(f=>({...f,position:e.target.value}))} /></FR>
-          <FR label="Vacancies"><input style={inp} type="number" min="1" value={jf.vacancies} onChange={e=>setJf(f=>({...f,vacancies:e.target.value}))} /></FR>
-          <FR label="Salary (SAR)"><input style={inp} value={jf.salary} onChange={e=>setJf(f=>({...f,salary:e.target.value}))} /></FR>
-          <FR label="Deadline"><input style={inp} type="date" value={jf.deadline} onChange={e=>setJf(f=>({...f,deadline:e.target.value}))} /></FR>
-          <FR label="Status"><select style={inp} value={jf.status} onChange={e=>setJf(f=>({...f,status:e.target.value}))}><option>Open</option><option>Filled</option><option>Closed</option></select></FR>
-          <FR label="Contact Person"><input style={inp} value={jf.contact} onChange={e=>setJf(f=>({...f,contact:e.target.value}))} /></FR>
-          <FR label="Notes" span><textarea style={{...inp,minHeight:55,resize:"vertical"}} value={jf.notes} onChange={e=>setJf(f=>({...f,notes:e.target.value}))} /></FR>
+          <FR label="Order Reference *"><input key="ref" style={inp} value={jf.ref} onChange={e=>setJf(f=>({...f,ref:e.target.value}))} /></FR>
+          <FR label="Client / Company *"><input key="client" style={inp} value={jf.client} onChange={e=>setJf(f=>({...f,client:e.target.value}))} /></FR>
+          <FR label="Country"><select key="country" style={inp} value={jf.country} onChange={e=>setJf(f=>({...f,country:e.target.value}))}>{COUNTRIES.map(c=><option key={c}>{c}</option>)}</select></FR>
+          <FR label="City"><input key="city" style={inp} value={jf.city} onChange={e=>setJf(f=>({...f,city:e.target.value}))} /></FR>
+          <FR label="Position / Trade *"><input key="position" style={inp} value={jf.position} onChange={e=>setJf(f=>({...f,position:e.target.value}))} /></FR>
+          <FR label="Vacancies"><input key="vacancies" style={inp} type="number" min="1" value={jf.vacancies} onChange={e=>setJf(f=>({...f,vacancies:e.target.value}))} /></FR>
+          <FR label="Salary (SAR)"><input key="salary" style={inp} value={jf.salary} onChange={e=>setJf(f=>({...f,salary:e.target.value}))} /></FR>
+          <FR label="Deadline"><input key="deadline" style={inp} type="date" value={jf.deadline} onChange={e=>setJf(f=>({...f,deadline:e.target.value}))} /></FR>
+          <FR label="Status"><select key="status" style={inp} value={jf.status} onChange={e=>setJf(f=>({...f,status:e.target.value}))}><option>Open</option><option>Filled</option><option>Closed</option></select></FR>
+          <FR label="Contact Person"><input key="contact" style={inp} value={jf.contact} onChange={e=>setJf(f=>({...f,contact:e.target.value}))} /></FR>
+          <FR label="Notes" span><textarea key="notes" style={{...inp,minHeight:55,resize:"vertical"}} value={jf.notes} onChange={e=>setJf(f=>({...f,notes:e.target.value}))} /></FR>
         </div>
 
-        <div style={{marginTop:20,borderTop:"1px solid #E5E7EB",paddingTop:14}}>
-          <div style={{fontWeight:600,fontSize:13,marginBottom:12,color:"#374151"}}>📍 Job Positions (Optional - Add multiple positions for this job order)</div>
+        {/* POSITIONS SECTION */}
+        <div style={{marginTop:20,borderTop:"1px solid #E5E7EB",paddingTop:16}}>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:14,color:"#1F2937"}}>📍 Add More Job Positions for this Client (each treated equally)</div>
           
-          {tempPositions.length > 0 && (
-            <div style={{marginBottom:12,background:"#F9FAFB",borderRadius:8,padding:"10px 12px"}}>
+          {/* SHOW ADDED POSITIONS */}
+          {tempPositions && tempPositions.length > 0 && (
+            <div style={{marginBottom:14,background:"#F3F4F6",borderRadius:8,padding:"12px 14px"}}>
+              <div style={{fontSize:12,fontWeight:600,marginBottom:8,color:"#374151"}}>Added Positions:</div>
               {tempPositions.map((p,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<tempPositions.length-1?"1px solid #E5E7EB":"none"}}>
-                  <div><div style={{fontWeight:500,fontSize:12}}>{p.position_name}</div><div style={{fontSize:11,color:"#6B7280"}}>Need: {p.required_count}</div></div>
-                  <button style={btn({padding:"4px 8px",fontSize:10,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>setTempPositions(tempPositions.filter((_,idx)=>idx!==i))}>✕</button>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:12,color:"#1F2937"}}>{p.position_name}</div>
+                    <div style={{fontSize:11,color:"#6B7280"}}>Visas: {p.required_count} | Salary: SAR {p.salary||"—"}</div>
+                  </div>
+                  <button style={{background:"#FEE2E2",color:"#DC2626",border:"none",borderRadius:4,padding:"6px 10px",fontSize:11,cursor:"pointer",fontWeight:600}} onClick={()=>setTempPositions(tempPositions.filter((_,idx)=>idx!==i))}>Remove</button>
                 </div>
               ))}
             </div>
           )}
 
-          <div style={{display:"flex",gap:8,marginBottom:12}}>
-            <input style={{...inp,flex:1,marginBottom:0}} placeholder="Position name (Chef, Driver, etc.)" value={newPos.position_name} onChange={e=>setNewPos(p=>({...p,position_name:e.target.value}))} />
-            <input style={{...inp,width:70,marginBottom:0}} type="number" min="1" placeholder="Qty" value={newPos.required_count} onChange={e=>setNewPos(p=>({...p,required_count:Number(e.target.value)||1}))} />
-            <button style={btn({padding:"8px 12px"})} onClick={()=>{if(newPos.position_name.trim()){setTempPositions([...tempPositions,newPos]);setNewPos({position_name:"",required_count:1});}else alert("Position name required");}}>Add</button>
+          {/* ADD NEW POSITION */}
+          <div style={{background:"#F9FAFB",borderRadius:8,padding:"12px 14px",border:"1px solid #E5E7EB"}}>
+            <div style={{fontSize:12,fontWeight:600,marginBottom:10,color:"#374151"}}>Add New Position:</div>
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:8,alignItems:"flex-end"}}>
+              <input 
+                key="pos_name"
+                style={{...inp,marginBottom:0}} 
+                placeholder="Position (Chef, Driver, Manager)" 
+                value={newPos.position_name} 
+                onChange={e=>setNewPos(p=>({...p,position_name:e.target.value}))} 
+              />
+              <input 
+                key="pos_visas"
+                style={{...inp,marginBottom:0}} 
+                type="number" 
+                min="1" 
+                placeholder="Visas Needed" 
+                value={newPos.required_count} 
+                onChange={e=>setNewPos(p=>({...p,required_count:Number(e.target.value)||1}))} 
+              />
+              <input 
+                key="pos_salary"
+                style={{...inp,marginBottom:0}} 
+                placeholder="Salary (SAR)" 
+                value={newPos.salary} 
+                onChange={e=>setNewPos(p=>({...p,salary:e.target.value}))} 
+              />
+              <button 
+                style={{background:"#10B981",color:"#fff",border:"none",borderRadius:4,padding:"8px 14px",cursor:"pointer",fontWeight:600,fontSize:12,whiteSpace:"nowrap"}} 
+                onClick={()=>{
+                  if(newPos.position_name.trim()){
+                    setTempPositions([...tempPositions,{...newPos}]);
+                    setNewPos({position_name:"",required_count:1,salary:""});
+                  }else{
+                    alert("Please enter position name");
+                  }
+                }}
+              >
+                + Add
+              </button>
+            </div>
           </div>
         </div>
 
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
-          <button style={btn()} onClick={()=>{setModal(null);setTempPositions([]);setNewPos({position_name:"",required_count:1});}}>Cancel</button>
-          <button style={pri} onClick={saveJob}>Create Job Order {tempPositions.length>0?`(${tempPositions.length} positions)`:""}</button>
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
+          <button style={btn()} onClick={()=>{setModal(null);setTempPositions([]);setNewPos({position_name:"",required_count:1,salary:""});}}>Cancel</button>
+          <button style={pri} onClick={saveJob}>Create Job Order {tempPositions && tempPositions.length>0?`+ ${tempPositions.length} Position${tempPositions.length!==1?"s":""}`:""}</button>
         </div>
       </Modal>
 
@@ -904,6 +957,33 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
     fetchStaff();
   };
 
+  const deleteStaff = async (id, name) => {
+    if (!window.confirm(`Delete ${name}'s account? This cannot be undone.`)) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ action: "delete", userId: id, requesterId: session?.user?.id }),
+    });
+    const result = await res.json();
+    if (result.error) { alert(result.error); return; }
+    fetchStaff();
+  };
+
+  const editStaffEmail = async (id, currentEmail) => {
+    const newEmail = window.prompt("Enter corrected email address:", currentEmail);
+    if (!newEmail || newEmail === currentEmail) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ action: "update_email", userId: id, newEmail, requesterId: session?.user?.id }),
+    });
+    const result = await res.json();
+    if (result.error) { alert(result.error); return; }
+    fetchStaff();
+  };
+
   const toggleClient = async (id, client, current) => {
     const list = current || [];
     const updated = list.includes(client) ? list.filter(c=>c!==client) : [...list, client];
@@ -924,30 +1004,28 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
       return;
     }
     setCreatingStaff(true);
-    
-    try {
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: newStaffEmail,
-        password: newStaffPassword,
-        options: { data: { full_name: newStaffName } }
-      });
-      
-      if (authError) { alert(authError.message); setCreatingStaff(false); return; }
 
-      // Update profile with name (profile auto-created by trigger)
-      if (authData.user) {
-        await supabase.from("profiles").update({ 
-          full_name: newStaffName,
-          role: "staff" 
-        }).eq("id", authData.user.id);
-      }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          action: "create",
+          email: newStaffEmail,
+          password: newStaffPassword,
+          fullName: newStaffName,
+          requesterId: session?.user?.id,
+        }),
+      });
+      const result = await res.json();
+      if (result.error) { alert(result.error); setCreatingStaff(false); return; }
 
       setCreatedMessage(`✓ Account created! Email: ${newStaffEmail} | Password: ${newStaffPassword}`);
       setNewStaffEmail("");
       setNewStaffName("");
       setNewStaffPassword("");
-      
+
       setTimeout(() => {
         setCreatedMessage("");
         setShowCreateForm(false);
@@ -992,7 +1070,7 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
 
       <div style={S.card}>
         <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead><tr>{["Name","Email","Role","Client Access (Managers only)"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Name","Email","Role","Client Access (Managers only)","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {staff.map(s=>(
               <tr key={s.id}>
@@ -1012,6 +1090,12 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
                       ))}
                     </div>
                   ) : <span style={{ fontSize:12, color:"#9CA3AF" }}>{s.role==="admin"?"All clients":"N/A"}</span>}
+                </td>
+                <td style={S.td}>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button style={btn({padding:"4px 10px",fontSize:11})} onClick={()=>editStaffEmail(s.id, s.email)}>Edit Email</button>
+                    <button style={btn({padding:"4px 10px",fontSize:11,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>deleteStaff(s.id, s.full_name)}>Delete</button>
+                  </div>
                 </td>
               </tr>
             ))}
