@@ -1,3 +1,4 @@
+import NotificationBell from '../components/NotificationBell';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -41,6 +42,10 @@ export default function CrmDashboard({ currentUser }) {
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <NotificationBell currentUserId={currentUser.id} />
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
         <StatCard label="Present" value={stats.present} accent="#10B981" />
         <StatCard label="Potential" value={stats.potential} accent="#3B82F6" />

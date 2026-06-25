@@ -118,6 +118,8 @@ export default function App() {
   const [editId, setEditId] = useState(null);
   const [cf, setCf] = useState(EMPTY_CAND);
   const [jf, setJf] = useState(EMPTY_JOB);
+  const [tempPositions, setTempPositions] = useState([]);
+  const [newPos, setNewPos] = useState({ position_name: "", required_count: 1 });
   const [search, setSearch] = useState("");
   const [stageFil, setStageFil] = useState("");
   const [jobFil, setJobFil] = useState("");
@@ -203,10 +205,23 @@ export default function App() {
   const saveJob = async () => {
     if (!jf.ref.trim() || !jf.client.trim()) { alert("Reference and client required"); return; }
     const payload = sanitizeForDb({ ...jf, vacancies:Number(jf.vacancies)||1 });
-    const { error } = await supabase.from("job_orders").insert([{ ...payload, created_by: profile.id }]);
-    if (error) { alert(error.message); return; }
-    addLog(`New order: ${jf.ref} — ${jf.client}`);
-    setModal(null); setJf(EMPTY_JOB);
+    const { data: jobData, error: jobError } = await supabase.from("job_orders").insert([{ ...payload, created_by: profile.id }]).select();
+    if (jobError) { alert(jobError.message); return; }
+    
+    // Save positions if any
+    if (jobData && jobData[0] && tempPositions.length > 0) {
+      const jobId = jobData[0].id;
+      const posPayload = tempPositions.map(p => ({
+        job_id: jobId,
+        position_name: p.position_name,
+        required_count: Number(p.required_count)||1
+      }));
+      const { error: posError } = await supabase.from("job_positions").insert(posPayload);
+      if (posError) { alert("Job created but positions failed: " + posError.message); }
+    }
+    
+    addLog(`New order: ${jf.ref} — ${jf.client}${tempPositions.length > 0 ? ` (${tempPositions.length} positions)` : ""}`);
+    setModal(null); setJf(EMPTY_JOB); setTempPositions([]); setNewPos({ position_name: "", required_count: 1 });
     fetchAll();
   };
 
@@ -345,6 +360,7 @@ export default function App() {
           <NavItem p="jobs" icon="📋" label="Job Orders"/>
           <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
           <NavItem p="reports" icon="📄" label="Status Reports"/>
+          <NavItem p="crm" icon="💼" label="CRM Dashboard"/>
           {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
@@ -362,7 +378,7 @@ export default function App() {
           <div>
             <div style={{fontWeight:700,fontSize:16}}>
               {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="candidates"&&"In-Process Candidates"}
-              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="staff"&&"Staff Access Management"}
+              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"CRM Dashboard"}{page==="staff"&&"Staff Access Management"}
             </div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
           </div>
@@ -632,6 +648,24 @@ export default function App() {
             </div>
           )}
 
+          {/* ══ CRM DASHBOARD ══ */}
+          {page==="crm"&&(
+            <div style={{...card,padding:"20px 22px"}}>
+              <div style={{fontWeight:700,fontSize:16,marginBottom:8}}>💼 CRM Dashboard</div>
+              <div style={{color:"#6B7280",marginBottom:20}}>Client interactions, campaigns, and follow-up tracking</div>
+              <div style={{background:"#EEF2FF",border:"1px solid #C7D2FE",borderRadius:12,padding:"16px 18px"}}>
+                <div style={{fontWeight:600,color:"#3730A3",marginBottom:8}}>📋 CRM Features</div>
+                <div style={{fontSize:13,color:"#4338CA",lineHeight:1.8}}>
+                  • Track client interactions and follow-ups<br/>
+                  • Manage marketing campaigns<br/>
+                  • Monitor campaign recipient status<br/>
+                  • Set automated reminders<br/>
+                  • Alert management system
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ══ STAFF ACCESS (admin only) ══ */}
           {page==="staff"&&profile.role==="admin"&&(
             <StaffManagement S={S} inp={inp} btn={btn} pri={pri} jobs={jobs} />
@@ -735,7 +769,7 @@ export default function App() {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
           <FR label="Full Name *"><input style={inp} value={cf.name} onChange={e=>setCf(f=>({...f,name:e.target.value}))} /></FR>
           <FR label="Father's Name"><input style={inp} value={cf.father_name} onChange={e=>setCf(f=>({...f,father_name:e.target.value}))} /></FR>
-          <FR label="CNIC"><input style={inp} value={cf.cnic} onChange={e=>setCf(f=>({...f,cnic:e.target.value}))} /></FR>
+          <FR label="CNIC *"><input style={inp} value={cf.cnic} onChange={e=>setCf(f=>({...f,cnic:e.target.value}))} /></FR>
           <FR label="Phone"><input style={inp} value={cf.phone} onChange={e=>setCf(f=>({...f,phone:e.target.value}))} /></FR>
           <FR label="Trade / Position *"><input style={inp} value={cf.trade} onChange={e=>setCf(f=>({...f,trade:e.target.value}))} /></FR>
           <FR label="Passport No."><input style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
@@ -788,9 +822,31 @@ export default function App() {
           <FR label="Contact Person"><input style={inp} value={jf.contact} onChange={e=>setJf(f=>({...f,contact:e.target.value}))} /></FR>
           <FR label="Notes" span><textarea style={{...inp,minHeight:55,resize:"vertical"}} value={jf.notes} onChange={e=>setJf(f=>({...f,notes:e.target.value}))} /></FR>
         </div>
+
+        <div style={{marginTop:20,borderTop:"1px solid #E5E7EB",paddingTop:14}}>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:12,color:"#374151"}}>📍 Job Positions (Optional - Add multiple positions for this job order)</div>
+          
+          {tempPositions.length > 0 && (
+            <div style={{marginBottom:12,background:"#F9FAFB",borderRadius:8,padding:"10px 12px"}}>
+              {tempPositions.map((p,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<tempPositions.length-1?"1px solid #E5E7EB":"none"}}>
+                  <div><div style={{fontWeight:500,fontSize:12}}>{p.position_name}</div><div style={{fontSize:11,color:"#6B7280"}}>Need: {p.required_count}</div></div>
+                  <button style={btn({padding:"4px 8px",fontSize:10,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>setTempPositions(tempPositions.filter((_,idx)=>idx!==i))}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <input style={{...inp,flex:1,marginBottom:0}} placeholder="Position name (Chef, Driver, etc.)" value={newPos.position_name} onChange={e=>setNewPos(p=>({...p,position_name:e.target.value}))} />
+            <input style={{...inp,width:70,marginBottom:0}} type="number" min="1" placeholder="Qty" value={newPos.required_count} onChange={e=>setNewPos(p=>({...p,required_count:Number(e.target.value)||1}))} />
+            <button style={btn({padding:"8px 12px"})} onClick={()=>{if(newPos.position_name.trim()){setTempPositions([...tempPositions,newPos]);setNewPos({position_name:"",required_count:1});}else alert("Position name required");}}>Add</button>
+          </div>
+        </div>
+
         <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
-          <button style={btn()} onClick={()=>setModal(null)}>Cancel</button>
-          <button style={pri} onClick={saveJob}>Create Job Order</button>
+          <button style={btn()} onClick={()=>{setModal(null);setTempPositions([]);setNewPos({position_name:"",required_count:1});}}>Cancel</button>
+          <button style={pri} onClick={saveJob}>Create Job Order {tempPositions.length>0?`(${tempPositions.length} positions)`:""}</button>
         </div>
       </Modal>
 
