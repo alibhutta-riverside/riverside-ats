@@ -3,7 +3,7 @@
 // CrmDashboard's header. Uses inline styles to match your existing components.
 
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "../supabaseClient"; // adjust path if your client lives elsewhere
+import { supabase } from "../lib/supabase";
 
 export default function NotificationBell({ currentUserId }) {
   const [alerts, setAlerts] = useState([]);
