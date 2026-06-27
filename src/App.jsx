@@ -146,6 +146,7 @@ export default function App() {
   const [editId, setEditId] = useState(null);
   const [cf, setCf] = useState(EMPTY_CAND);
   const [jf, setJf] = useState(EMPTY_JOB);
+  const [editJobId, setEditJobId] = useState(null);
   const [tempPositions, setTempPositions] = useState([]);
   const [newPos, setNewPos] = useState({position_name:"",required_count:1,salary:""});
   const [search, setSearch] = useState("");
@@ -252,6 +253,31 @@ export default function App() {
   const saveJob = async () => {
     if (!jf.ref.trim() || !jf.client.trim()) { alert("Reference and client required"); return; }
     const payload = sanitizeForDb({ ...jf, vacancies:Number(jf.vacancies)||1 });
+
+    if (editJobId) {
+      const { error } = await supabase.from("job_orders").update(payload).eq("id", editJobId);
+      if (error) { alert(error.message); return; }
+
+      if (tempPositions && tempPositions.length > 0) {
+        const posPayload = tempPositions.map(p => ({
+          job_id: editJobId,
+          position_name: p.position_name,
+          required_count: Number(p.required_count) || 1,
+          salary: p.salary || ""
+        }));
+        await supabase.from("job_positions").insert(posPayload);
+      }
+
+      addLog(`Updated order: ${jf.ref} — ${jf.client}${tempPositions && tempPositions.length > 0 ? ` (+${tempPositions.length} new positions)` : ""}`);
+      setModal(null);
+      setJf(EMPTY_JOB);
+      setTempPositions([]);
+      setNewPos({position_name:"",required_count:1,salary:""});
+      setEditJobId(null);
+      fetchAll();
+      return;
+    }
+
     const { data: jobData, error } = await supabase.from("job_orders").insert([{ ...payload, created_by: profile.id }]).select();
     if (error) { alert(error.message); return; }
     
@@ -273,6 +299,17 @@ export default function App() {
     setTempPositions([]);
     setNewPos({position_name:"",required_count:1,salary:""});
     fetchAll();
+  };
+
+  const openEditJob = (j) => {
+    setJf({
+      ref: j.ref || "", client: j.client || "", country: j.country || "", city: j.city || "",
+      position: j.position || "", vacancies: j.vacancies || 1, salary: j.salary || "",
+      deadline: j.deadline || "", status: j.status || "Open", contact: j.contact || "", notes: j.notes || "",
+    });
+    setEditJobId(j.id);
+    setTempPositions([]);
+    setModal("job");
   };
 
   const openEdit = (c) => { setEditId(c.id); setCf({...EMPTY_CAND,...c}); setModal("cand"); };
@@ -407,7 +444,7 @@ export default function App() {
           </div>
           <div style={{display:"flex",gap:8}}>
             {page==="candidates"&&<button style={pri} onClick={()=>{setEditId(null);setCf(EMPTY_CAND);setModal("cand");}}>+ Add Candidate</button>}
-            {page==="jobs"&&canManage&&<button style={pri} onClick={()=>{setJf(EMPTY_JOB);setModal("job");}}>+ New Job Order</button>}
+            {page==="jobs"&&canManage&&<button style={pri} onClick={()=>{setJf(EMPTY_JOB);setEditJobId(null);setModal("job");}}>+ New Job Order</button>}
           </div>
         </div>
 
@@ -616,6 +653,7 @@ export default function App() {
                     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                       <button style={btn({fontSize:12,flex:1})} onClick={()=>{setJobFil(j.id);setPage("pipeline");}}>View Pipeline</button>
                       <button style={btn({fontSize:12,flex:1,color:"#6366F1",borderColor:"#C7D2FE"})} onClick={()=>{setRptJob(j.id);setPage("reports");}}>Export Report</button>
+                      {canManage && <button style={btn({fontSize:12,color:"#10B981",borderColor:"#A7F3D0",padding:"7px 10px"})} onClick={()=>openEditJob(j)}>Edit</button>}
                       {canManage && <button style={btn({fontSize:12,color:"#EF4444",borderColor:"#FEE2E2",padding:"7px 10px"})} onClick={()=>delJob(j.id)}>✕</button>}
                     </div>
                   </div>
@@ -827,7 +865,7 @@ export default function App() {
       </Modal>
 
       {/* ══ JOB MODAL ══ */}
-      <Modal id="job" title="New Job Order">
+      <Modal id="job" title={editJobId ? "Edit Job Order" : "New Job Order"}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
           <FR label="Order Reference *"><input key="ref" style={inp} value={jf.ref} onChange={e=>setJf(f=>({...f,ref:e.target.value}))} /></FR>
           <FR label="Client / Company *"><input key="client" style={inp} value={jf.client} onChange={e=>setJf(f=>({...f,client:e.target.value}))} /></FR>
@@ -845,6 +883,21 @@ export default function App() {
         {/* POSITIONS SECTION */}
         <div style={{marginTop:20,borderTop:"1px solid #E5E7EB",paddingTop:16}}>
           <div style={{fontWeight:700,fontSize:13,marginBottom:14,color:"#1F2937"}}>📍 Add More Job Positions for this Client (each treated equally)</div>
+
+          {editJobId && positions.filter(p=>p.job_id===editJobId).length > 0 && (
+            <div style={{marginBottom:14,background:"#ECFDF5",borderRadius:8,padding:"12px 14px",border:"1px solid #A7F3D0"}}>
+              <div style={{fontSize:12,fontWeight:600,marginBottom:8,color:"#065F46"}}>Existing Positions on this Order:</div>
+              {positions.filter(p=>p.job_id===editJobId).map((p)=>(
+                <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #A7F3D0"}}>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:12,color:"#1F2937"}}>{p.position_name}</div>
+                    <div style={{fontSize:11,color:"#6B7280"}}>Visas: {p.required_count} | Salary: SAR {p.salary||"—"}</div>
+                  </div>
+                  <button style={{background:"#FEE2E2",color:"#DC2626",border:"none",borderRadius:4,padding:"6px 10px",fontSize:11,cursor:"pointer",fontWeight:600}} onClick={()=>delPos(p.id)}>Remove</button>
+                </div>
+              ))}
+            </div>
+          )}
           
           {/* SHOW ADDED POSITIONS */}
           {tempPositions && tempPositions.length > 0 && (
@@ -907,8 +960,8 @@ export default function App() {
         </div>
 
         <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
-          <button style={btn()} onClick={()=>{setModal(null);setTempPositions([]);setNewPos({position_name:"",required_count:1,salary:""});}}>Cancel</button>
-          <button style={pri} onClick={saveJob}>Create Job Order {tempPositions && tempPositions.length>0?`+ ${tempPositions.length} Position${tempPositions.length!==1?"s":""}`:""}</button>
+          <button style={btn()} onClick={()=>{setModal(null);setTempPositions([]);setNewPos({position_name:"",required_count:1,salary:""});setEditJobId(null);}}>Cancel</button>
+          <button style={pri} onClick={saveJob}>{editJobId ? "Save Changes" : "Create Job Order"} {tempPositions && tempPositions.length>0?`+ ${tempPositions.length} Position${tempPositions.length!==1?"s":""}`:""}</button>
         </div>
       </Modal>
 
