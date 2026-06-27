@@ -130,7 +130,7 @@ export default function ClientList({ onSelectClient, currentUser }) {
             return (
               <button
                 key={c.id}
-                onClick={() => { console.log('CLIENT CARD CLICKED', c.id, c.company_name); onSelectClient(c.id); }}
+                onClick={() => onSelectClient(c.id)}
                 style={{ textAlign: "left", borderRadius: 12, border: "1px solid #E5E7EB", background: "#fff", padding: 14, cursor: "pointer", fontFamily: "inherit" }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
