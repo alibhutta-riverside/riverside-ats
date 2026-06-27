@@ -422,6 +422,7 @@ export default function App() {
             <NavItem p="crm" icon="📞" label="Client CRM"/>
           </>}
           {profile.role==="admin" && <NavItem p="staff" icon="🔑" label="Staff Access"/>}
+          {profile.role==="admin" && <NavItem p="auditlog" icon="🛡️" label="Audit Log"/>}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid #F3F4F6"}}>
           <div style={{fontSize:11,color:"#9CA3AF"}}>Logged in as</div>
@@ -438,7 +439,7 @@ export default function App() {
           <div>
             <div style={{fontWeight:700,fontSize:16}}>
               {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="candidates"&&"In-Process Candidates"}
-              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"Client CRM"}{page==="staff"&&"Staff Access Management"}
+              {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"Client CRM"}{page==="staff"&&"Staff Access Management"}{page==="auditlog"&&"Audit Log"}
             </div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
           </div>
@@ -728,6 +729,11 @@ export default function App() {
             <StaffManagement S={S} inp={inp} btn={btn} pri={pri} jobs={jobs} />
           )}
 
+          {/* ══ AUDIT LOG (admin only) ══ */}
+          {page==="auditlog"&&profile.role==="admin"&&(
+            <AuditLog S={S} inp={inp} btn={btn} />
+          )}
+
         </div>
       </div>
 
@@ -994,7 +1000,80 @@ export default function App() {
   );
 }
 
-// ─── STAFF MANAGEMENT (Admin only) ────────────────────────────────────────────
+// ─── AUDIT LOG (Admin only) ────────────────────────────────────────────────────
+function AuditLog({ S, inp, btn }) {
+  const [logs, setLogs] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [staffFilter, setStaffFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [limit, setLimit] = useState(100);
+
+  const fetchLogs = useCallback(async () => {
+    setLoading(true);
+    let query = supabase.from('activity_log').select('id, message, created_at, created_by, profiles(full_name)').order('created_at', { ascending: false }).limit(limit);
+    if (staffFilter) query = query.eq('created_by', staffFilter);
+    if (dateFrom) query = query.gte('created_at', dateFrom + 'T00:00:00');
+    if (dateTo) query = query.lte('created_at', dateTo + 'T23:59:59');
+    const { data } = await query;
+    setLogs(data || []);
+    setLoading(false);
+  }, [staffFilter, dateFrom, dateTo, limit]);
+
+  useEffect(() => {
+    fetchLogs();
+    supabase.from('profiles').select('id, full_name').order('full_name').then(({ data }) => setStaff(data || []));
+  }, [fetchLogs]);
+
+  const filtered = logs.filter(l => l.message.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div>
+      <div style={{ background:"#FEF2F2", border:"1px solid #FEE2E2", borderRadius:12, padding:"14px 18px", marginBottom:18 }}>
+        <div style={{ fontWeight:700, fontSize:14, color:"#991B1B" }}>🛡️ Full Audit Trail</div>
+        <div style={{ fontSize:12, color:"#B91C1C", marginTop:4 }}>Every create/update action across the ATS and CRM, timestamped and attributed to the staff member who did it. Read-only — this cannot be edited or deleted from the app.</div>
+      </div>
+
+      <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
+        <select style={{...inp, width:"auto"}} value={staffFilter} onChange={e=>setStaffFilter(e.target.value)}>
+          <option value="">All staff</option>
+          {staff.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+        </select>
+        <input style={{...inp, width:"auto"}} type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} title="From date" />
+        <input style={{...inp, width:"auto"}} type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} title="To date" />
+        <input style={{...inp, width:240}} placeholder="Search action text…" value={search} onChange={e=>setSearch(e.target.value)} />
+        <select style={{...inp, width:"auto"}} value={limit} onChange={e=>setLimit(Number(e.target.value))}>
+          <option value={100}>Last 100</option>
+          <option value={300}>Last 300</option>
+          <option value={1000}>Last 1000</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div style={{ color:"#9CA3AF", textAlign:"center", padding:30 }}>Loading…</div>
+      ) : (
+        <div style={S.card}>
+          <table style={{ width:"100%", borderCollapse:"collapse" }}>
+            <thead><tr>{["Date & Time","Staff Member","Action"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {filtered.map(l => (
+                <tr key={l.id}>
+                  <td style={{...S.td, whiteSpace:"nowrap", fontSize:12, color:"#6B7280"}}>{new Date(l.created_at).toLocaleString()}</td>
+                  <td style={{...S.td, fontWeight:600}}>{l.profiles?.full_name || "Unknown"}</td>
+                  <td style={S.td}>{l.message}</td>
+                </tr>
+              ))}
+              {filtered.length===0 && <tr><td colSpan={3} style={{textAlign:"center", padding:30, color:"#9CA3AF"}}>No activity matches these filters.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StaffManagement({ S, inp, btn, pri, jobs }) {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
