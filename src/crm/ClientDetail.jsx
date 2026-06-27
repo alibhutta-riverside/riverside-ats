@@ -8,12 +8,25 @@ export default function ClientDetail({ clientId, currentUser, onBack }) {
   const [showEditForm, setShowEditForm] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [form, setForm] = useState({
     interaction_type: 'call', summary: '', feedback: '', outcome: 'neutral',
     next_followup_date: '', next_followup_notes: '',
   });
 
-  useEffect(() => { load(); }, [clientId]);
+  useEffect(() => { load(); loadTeamMembers(); }, [clientId]);
+
+  async function loadTeamMembers() {
+    const { data: members } = await supabase.from('team_members').select('id, full_name').order('full_name');
+    const { data: allowed } = await supabase.from('profiles').select('id').eq('crm_access', true);
+    const allowedIds = new Set((allowed ?? []).map((p) => p.id));
+    setTeamMembers((members ?? []).filter((m) => allowedIds.has(m.id)));
+  }
+
+  async function reassign(newOwnerId) {
+    await supabase.from('clients').update({ assigned_to: newOwnerId || null }).eq('id', clientId);
+    load();
+  }
 
   async function load() {
     const { data: c } = await supabase.from('clients').select('*, team_members(full_name)').eq('id', clientId).single();
@@ -112,7 +125,19 @@ export default function ClientDetail({ clientId, currentUser, onBack }) {
         <div style={{ fontWeight: 700, fontSize: 16 }}>{client.company_name}</div>
         <div style={{ fontSize: 13, color: "#6B7280" }}>{client.contact_person} · {client.designation}</div>
         <div style={{ fontSize: 12, color: "#9CA3AF" }}>{client.sector} · {client.country}</div>
-        <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4 }}>Owner: {client.team_members?.full_name ?? 'Unassigned'}</div>
+        <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+          Owner:
+          <select
+            value={client.assigned_to || ''}
+            onChange={(e) => reassign(e.target.value)}
+            style={{ fontSize: 11, border: "1px solid #E5E7EB", borderRadius: 6, padding: "2px 6px", color: "#374151", fontFamily: "inherit" }}
+          >
+            <option value="">Unassigned</option>
+            {teamMembers.map((m) => (
+              <option key={m.id} value={m.id}>{m.full_name}</option>
+            ))}
+          </select>
+        </div>
         <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
           {client.whatsapp && <a href={`https://wa.me/${client.whatsapp.replace(/\D/g, '')}`} style={{ fontSize: 12, fontWeight: 600, color: "#10B981", textDecoration: "none" }}>WhatsApp</a>}
           {client.phone && <a href={`tel:${client.phone}`} style={{ fontSize: 12, fontWeight: 600, color: "#3B82F6", textDecoration: "none" }}>Call</a>}
