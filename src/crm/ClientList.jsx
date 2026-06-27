@@ -8,8 +8,10 @@ const EMPTY_CLIENT = {
 
 export default function ClientList({ onSelectClient, currentUser }) {
   const [clients, setClients] = useState([]);
+  const [contactedIds, setContactedIds] = useState(new Set());
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [onlyUncontacted, setOnlyUncontacted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_CLIENT);
@@ -23,6 +25,10 @@ export default function ClientList({ onSelectClient, currentUser }) {
     if (filter !== 'all') query = query.eq('client_type', filter);
     const { data } = await query;
     setClients(data ?? []);
+
+    const { data: interactionRows } = await supabase.from('interactions').select('client_id');
+    setContactedIds(new Set((interactionRows ?? []).map((r) => r.client_id)));
+
     setLoading(false);
   }
 
@@ -38,9 +44,11 @@ export default function ClientList({ onSelectClient, currentUser }) {
     loadClients();
   }
 
-  const filtered = clients.filter((c) =>
-    `${c.company_name} ${c.contact_person} ${c.sector}`.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = clients
+    .filter((c) => `${c.company_name} ${c.contact_person} ${c.sector}`.toLowerCase().includes(search.toLowerCase()))
+    .filter((c) => !onlyUncontacted || !contactedIds.has(c.id));
+
+  const uncontactedCount = clients.filter((c) => !contactedIds.has(c.id)).length;
 
   const inp = { padding: "8px 11px", border: "1px solid #E5E7EB", borderRadius: 8, fontSize: 13, width: "100%", fontFamily: "inherit", outline: "none", marginBottom: 8 };
   const typeStyles = {
@@ -87,7 +95,7 @@ export default function ClientList({ onSelectClient, currentUser }) {
         style={{ ...inp, marginBottom: 12 }}
       />
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
         {['all', 'present', 'potential', 'past'].map((t) => (
           <button
             key={t}
@@ -102,26 +110,45 @@ export default function ClientList({ onSelectClient, currentUser }) {
         ))}
       </div>
 
+      <button
+        onClick={() => setOnlyUncontacted((s) => !s)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600,
+          border: onlyUncontacted ? "1px solid #F59E0B" : "1px solid #E5E7EB", cursor: "pointer", marginBottom: 14,
+          background: onlyUncontacted ? "#FFFBEB" : "#fff", color: onlyUncontacted ? "#92400E" : "#6B7280",
+        }}
+      >
+        {onlyUncontacted ? "✓" : "○"} Not yet contacted ({uncontactedCount})
+      </button>
+
       {loading ? (
         <div style={{ textAlign: "center", color: "#9CA3AF", fontSize: 13 }}>Loading…</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {filtered.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => onSelectClient(c.id)}
-              style={{ textAlign: "left", borderRadius: 12, border: "1px solid #E5E7EB", background: "#fff", padding: 14, cursor: "pointer", fontFamily: "inherit" }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>{c.company_name}</div>
-                  <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{c.contact_person} · {c.sector ?? '—'}</div>
+          {filtered.map((c) => {
+            const contacted = contactedIds.has(c.id);
+            return (
+              <button
+                key={c.id}
+                onClick={() => { console.log('CLIENT CARD CLICKED', c.id, c.company_name); onSelectClient(c.id); }}
+                style={{ textAlign: "left", borderRadius: 12, border: "1px solid #E5E7EB", background: "#fff", padding: 14, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>{c.company_name}</div>
+                    <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{c.contact_person} · {c.sector ?? '—'}</div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, ...typeStyles[c.client_type] }}>{c.client_type}</span>
+                    {!contacted && (
+                      <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: "#FEF3C7", color: "#92400E" }}>Not yet contacted</span>
+                    )}
+                  </div>
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, flexShrink: 0, ...typeStyles[c.client_type] }}>{c.client_type}</span>
-              </div>
-              <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 6 }}>{c.country} · Owner: {c.team_members?.full_name ?? 'Unassigned'}</div>
-            </button>
-          ))}
+                <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 6 }}>{c.country} · Owner: {c.team_members?.full_name ?? 'Unassigned'}</div>
+              </button>
+            );
+          })}
           {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9CA3AF", fontSize: 13, padding: "30px 0" }}>No clients match.</div>}
         </div>
       )}
