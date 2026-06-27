@@ -9,6 +9,8 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
   const [experienceFilter, setExperienceFilter] = useState("");
   const [nationalityFilter, setNationalityFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [gccFilter, setGccFilter] = useState("");
+  const [licenseFilter, setLicenseFilter] = useState("");
   const [showDeployed, setShowDeployed] = useState(false);
   const [modal, setModal] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -34,7 +36,9 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     const matchesExp = !experienceFilter || c.experience===experienceFilter;
     const matchesNat = !nationalityFilter || c.nationality===nationalityFilter;
     const matchesSource = !sourceFilter || c.source===sourceFilter;
-    return matchesSearch && matchesTrade && matchesExp && matchesNat && matchesSource;
+    const matchesGcc = !gccFilter || (gccFilter==="yes" ? c.has_gcc_experience : !c.has_gcc_experience);
+    const matchesLicense = !licenseFilter || c.driving_license_type===licenseFilter;
+    return matchesSearch && matchesTrade && matchesExp && matchesNat && matchesSource && matchesGcc && matchesLicense;
   });
 
   const viewCand = viewId ? candidates.find(c=>c.id===viewId) : null;
@@ -168,6 +172,19 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
           <option value="">All sources</option>
           {sources.map(s=><option key={s}>{s}</option>)}
         </select>
+        <select style={{ ...inp, width:"auto", borderColor:"#A7F3D0" }} value={gccFilter} onChange={e=>setGccFilter(e.target.value)}>
+          <option value="">GCC Experience: All</option>
+          <option value="yes">✓ Has GCC/Foreign Experience</option>
+          <option value="no">No GCC Experience</option>
+        </select>
+        <select style={{ ...inp, width:"auto", borderColor:"#A7F3D0" }} value={licenseFilter} onChange={e=>setLicenseFilter(e.target.value)}>
+          <option value="">Driving License: All</option>
+          <option value="Light Vehicle">Light Vehicle</option>
+          <option value="Heavy Truck">Heavy Truck</option>
+          <option value="Trailer">Trailer</option>
+          <option value="Dyna">Dyna</option>
+          <option value="Heavy Equipment">Heavy Equipment</option>
+        </select>
         <div style={{ marginLeft:"auto", display:"flex", gap:8, flexWrap:"wrap" }}>
           {deployedCands.length>0 && <button style={btn({fontSize:12})} onClick={()=>setShowDeployed(!showDeployed)}>{showDeployed?"Hide":"Show"} Deployed ({deployedCands.length})</button>}
           <button style={btn({fontSize:12})} onClick={exportDatabank} disabled={!visible.length}>📊 Export to Excel</button>
@@ -193,7 +210,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
         <div style={{ overflowX:"auto" }}>
           <table style={{ width:"100%", borderCollapse:"collapse" }}>
             <thead><tr>
-              {["Photo","Name & Trade","CNIC","Passport","Phone","Source","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}
+              {["Photo","Name & Trade","CNIC","Passport","Phone","GCC Exp.","License","Source","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}
             </tr></thead>
             <tbody>
               {visible.length ? visible.map(c=>(
@@ -209,6 +226,16 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                   <td style={{ ...S.td, fontSize:12 }}>{c.cnic||"—"}</td>
                   <td style={{ ...S.td, fontFamily:"monospace", fontSize:12 }}>{c.passport||"—"}</td>
                   <td style={{ ...S.td, fontSize:12 }}>{c.phone||"—"}</td>
+                  <td style={S.td}>
+                    {c.has_gcc_experience
+                      ? <span style={{ fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:20, background:"#D1FAE5", color:"#065F46" }}>✓ {c.gcc_countries||"GCC"}</span>
+                      : <span style={{ fontSize:11, color:"#D1D5DB" }}>—</span>}
+                  </td>
+                  <td style={S.td}>
+                    {c.driving_license_type
+                      ? <span style={{ fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:20, background: c.driving_license_status==="Valid" ? "#DBEAFE" : "#FEF3C7", color: c.driving_license_status==="Valid" ? "#1E3A8A" : "#92400E" }}>{c.driving_license_type} {c.driving_license_status?`(${c.driving_license_status})`:""}</span>
+                      : <span style={{ fontSize:11, color:"#D1D5DB" }}>—</span>}
+                  </td>
                   <td style={{ ...S.td, fontSize:12 }}>{c.source||"—"}</td>
                   <td style={S.td}>
                     <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
@@ -231,7 +258,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                     </div>
                   </td>
                 </tr>
-              )) : <tr><td colSpan={7} style={{ textAlign:"center", padding:40, color:"#9CA3AF" }}>No candidates in databank yet. Add or bulk import to get started.</td></tr>}
+              )) : <tr><td colSpan={9} style={{ textAlign:"center", padding:40, color:"#9CA3AF" }}>No candidates in databank yet. Add or bulk import to get started.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -272,6 +299,23 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 <div style={{ background:"#FFFBEB", border:"1px solid #FDE68A", borderRadius:8, padding:"10px 12px", marginBottom:16, fontSize:13 }}>
                   <div style={{ fontSize:11, color:"#92400E", fontWeight:600, marginBottom:4 }}>NOTES</div>
                   {viewCand.databank_notes}
+                </div>
+              )}
+
+              {(viewCand.has_gcc_experience || viewCand.driving_license_type) && (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+                  {viewCand.has_gcc_experience && (
+                    <div style={{ background:"#ECFDF5", border:"1px solid #A7F3D0", borderRadius:8, padding:"10px 12px" }}>
+                      <div style={{ fontSize:11, color:"#065F46", fontWeight:600 }}>🌍 GCC EXPERIENCE</div>
+                      <div style={{ fontSize:13, fontWeight:600, marginTop:2 }}>{viewCand.gcc_countries || "Yes"}{viewCand.gcc_experience_years ? ` · ${viewCand.gcc_experience_years} yrs` : ""}</div>
+                    </div>
+                  )}
+                  {viewCand.driving_license_type && (
+                    <div style={{ background:"#EFF6FF", border:"1px solid #BFDBFE", borderRadius:8, padding:"10px 12px" }}>
+                      <div style={{ fontSize:11, color:"#1E3A8A", fontWeight:600 }}>🚛 DRIVING LICENSE</div>
+                      <div style={{ fontSize:13, fontWeight:600, marginTop:2 }}>{viewCand.driving_license_type} · {viewCand.driving_license_country || "—"} ({viewCand.driving_license_status || "—"})</div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -328,6 +372,55 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 <FR label="Passport No."><input style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
                 <FR label="Passport Expiry"><input style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
                 <FR label="Source"><input style={inp} value={cf.source} onChange={e=>setCf(f=>({...f,source:e.target.value}))} placeholder="Walk-in, referral, agent…" /></FR>
+              </div>
+
+              <div style={{ background:"#ECFDF5", border:"1px solid #A7F3D0", borderRadius:10, padding:"14px 16px", marginTop:14, marginBottom:14 }}>
+                <div style={{ fontWeight:700, fontSize:13, color:"#065F46", marginBottom:10 }}>🌍 GCC / Foreign Work Experience</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                  <FR label="Has GCC/Foreign Experience?">
+                    <select style={inp} value={cf.has_gcc_experience ? "yes" : "no"} onChange={e=>setCf(f=>({...f,has_gcc_experience: e.target.value==="yes"}))}>
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </select>
+                  </FR>
+                  {cf.has_gcc_experience && (
+                    <>
+                      <FR label="Countries Worked In"><input style={inp} value={cf.gcc_countries||""} onChange={e=>setCf(f=>({...f,gcc_countries:e.target.value}))} placeholder="Saudi Arabia, UAE, Qatar" /></FR>
+                      <FR label="Years of Foreign Experience"><input style={inp} value={cf.gcc_experience_years||""} onChange={e=>setCf(f=>({...f,gcc_experience_years:e.target.value}))} placeholder="e.g. 3" /></FR>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ background:"#EFF6FF", border:"1px solid #BFDBFE", borderRadius:10, padding:"14px 16px", marginBottom:14 }}>
+                <div style={{ fontWeight:700, fontSize:13, color:"#1E3A8A", marginBottom:10 }}>🚛 Driving License (if applicable)</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+                  <FR label="License Type">
+                    <select style={inp} value={cf.driving_license_type||""} onChange={e=>setCf(f=>({...f,driving_license_type:e.target.value}))}>
+                      <option value="">None</option>
+                      <option value="Light Vehicle">Light Vehicle</option>
+                      <option value="Heavy Truck">Heavy Truck</option>
+                      <option value="Trailer">Trailer</option>
+                      <option value="Dyna">Dyna</option>
+                      <option value="Heavy Equipment">Heavy Equipment</option>
+                    </select>
+                  </FR>
+                  {cf.driving_license_type && (
+                    <>
+                      <FR label="License Country"><input style={inp} value={cf.driving_license_country||""} onChange={e=>setCf(f=>({...f,driving_license_country:e.target.value}))} placeholder="Saudi Arabia, Pakistan…" /></FR>
+                      <FR label="Status">
+                        <select style={inp} value={cf.driving_license_status||""} onChange={e=>setCf(f=>({...f,driving_license_status:e.target.value}))}>
+                          <option value="">—</option>
+                          <option value="Valid">Valid</option>
+                          <option value="Expired">Expired</option>
+                        </select>
+                      </FR>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <FR label="CV File">
                   <input ref={cvInputRef} type="file" accept=".pdf,.doc,.docx" style={{ display:"none" }} onChange={handleCvUpload} />
                   <div style={{ display:"flex", gap:6 }}>
