@@ -159,6 +159,7 @@ export default function App() {
   const [rptJob, setRptJob] = useState("");
   const [waText, setWaText] = useState("");
   const [copied, setCopied] = useState(false);
+  const [storageUsage, setStorageUsage] = useState(null);
 
   // ── AUTH ──
   useEffect(() => {
@@ -185,6 +186,12 @@ export default function App() {
   }, []);
 
   useEffect(() => { if (session) fetchAll(); }, [session, fetchAll]);
+
+  useEffect(() => {
+    if (profile?.role === "admin") {
+      supabase.rpc('get_storage_usage').then(({ data }) => setStorageUsage(data || []));
+    }
+  }, [profile]);
 
   const addLog = async (msg) => {
     setLog(l=>[{msg,time:today()},...l].slice(0,60));
@@ -454,6 +461,26 @@ export default function App() {
           {/* ══ DASHBOARD ══ */}
           {page==="dashboard"&&(
             <div>
+              {profile.role==="admin" && storageUsage && (() => {
+                const totalBytes = storageUsage.reduce((s,b)=>s+Number(b.total_bytes||0),0);
+                const limitBytes = 1024*1024*1024; // 1GB free tier
+                const pct = Math.min(100, Math.round((totalBytes/limitBytes)*100));
+                const usedMB = (totalBytes/1024/1024).toFixed(1);
+                const totalFiles = storageUsage.reduce((s,b)=>s+Number(b.file_count||0),0);
+                const warn = pct >= 80;
+                return (
+                  <div style={{...card, marginBottom:20, padding:"16px 18px", border: warn ? "1px solid #FEE2E2" : "1px solid #E5E7EB"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <div style={{fontWeight:700,fontSize:13}}>📦 File Storage (CVs &amp; Photos)</div>
+                      <div style={{fontSize:12,color:warn?"#DC2626":"#6B7280",fontWeight:600}}>{usedMB} MB / 1024 MB ({pct}%) · {totalFiles} files</div>
+                    </div>
+                    <div style={{height:8,borderRadius:4,background:"#F3F4F6"}}>
+                      <div style={{height:8,borderRadius:4,background:warn?"#EF4444":"#10B981",width:`${pct}%`,transition:"width 0.3s"}}/>
+                    </div>
+                    {warn && <div style={{fontSize:11,color:"#DC2626",marginTop:6}}>⚠ Approaching free tier limit. Consider upgrading to Supabase Pro (100GB) to avoid upload failures.</div>}
+                  </div>
+                );
+              })()}
               <div className="stat-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
                 <StatCard label="CV Databank" value={visibleCandsAll.filter(c=>!c.job_id).length} sub="Available, unassigned" accent="#9CA3AF"/>
                 <StatCard label="In Pipeline" value={totalActive} sub="Active processing" accent="#F59E0B"/>
