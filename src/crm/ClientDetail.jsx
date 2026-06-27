@@ -25,6 +25,15 @@ export default function ClientDetail({ clientId, currentUser, onBack }) {
 
   async function reassign(newOwnerId) {
     await supabase.from('clients').update({ assigned_to: newOwnerId || null }).eq('id', clientId);
+    if (newOwnerId && newOwnerId !== currentUser.id) {
+      await supabase.from('alerts').insert({
+        team_member_id: newOwnerId,
+        client_id: clientId,
+        alert_type: 'client_assigned',
+        message: `${currentUser.full_name || 'A teammate'} handed you ${client?.company_name || 'a client'} — check the latest contact log for context.`,
+        is_read: false,
+      });
+    }
     load();
   }
 
