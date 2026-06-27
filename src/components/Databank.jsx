@@ -12,6 +12,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
   const [showDeployed, setShowDeployed] = useState(false);
   const [modal, setModal] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [viewId, setViewId] = useState(null);
   const [cf, setCf] = useState(EMPTY_CAND);
   const [uploading, setUploading] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
@@ -35,6 +36,8 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     const matchesSource = !sourceFilter || c.source===sourceFilter;
     return matchesSearch && matchesTrade && matchesExp && matchesNat && matchesSource;
   });
+
+  const viewCand = viewId ? candidates.find(c=>c.id===viewId) : null;
 
   const exportDatabank = async () => {
     if (!visible.length) { alert("No candidates to export"); return; }
@@ -77,6 +80,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
 
   const openAdd = () => { setEditId(null); setCf(EMPTY_CAND); setModal(true); };
   const openEdit = (c) => { setEditId(c.id); setCf({...EMPTY_CAND, ...c}); setModal(true); };
+  const openView = (c) => setViewId(c.id);
 
   const saveCand = async () => {
     if (!cf.name.trim()) { alert("Name is required"); return; }
@@ -194,12 +198,12 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
             <tbody>
               {visible.length ? visible.map(c=>(
                 <tr key={c.id}>
-                  <td style={S.td}>
-                    {c.photo_url ? <img src={c.photo_url} alt={c.name} style={{ width:36, height:36, borderRadius:8, objectFit:"cover" }} />
-                      : <div style={{ width:36, height:36, borderRadius:8, background:"#F3F4F6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, color:"#9CA3AF" }}>{c.name.charAt(0)}</div>}
+                  <td style={S.td} onClick={()=>openView(c)} title="Click to view full profile" >
+                    {c.photo_url ? <img src={c.photo_url} alt={c.name} style={{ width:36, height:36, borderRadius:8, objectFit:"cover", cursor:"pointer" }} />
+                      : <div style={{ width:36, height:36, borderRadius:8, background:"#F3F4F6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, color:"#9CA3AF", cursor:"pointer" }}>{c.name.charAt(0)}</div>}
                   </td>
-                  <td style={S.td}>
-                    <div style={{ fontWeight:600 }}>{c.name}</div>
+                  <td style={S.td} onClick={()=>openView(c)} title="Click to view full profile">
+                    <div style={{ fontWeight:600, cursor:"pointer", color:"#4338CA" }}>{c.name}</div>
                     <div style={{ fontSize:12, color:"#6B7280" }}>{c.trade} {c.experience?`· ${c.experience} yrs`:""}</div>
                   </td>
                   <td style={{ ...S.td, fontSize:12 }}>{c.cnic||"—"}</td>
@@ -208,6 +212,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                   <td style={{ ...S.td, fontSize:12 }}>{c.source||"—"}</td>
                   <td style={S.td}>
                     <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                      <button style={btn({ padding:"4px 9px", fontSize:11, color:"#4338CA", borderColor:"#C7D2FE" })} onClick={()=>openView(c)}>View</button>
                       {c.stage!=="deployed" ? (
                         <>
                           <select style={{ ...inp, width:"auto", padding:"4px 8px", fontSize:11 }} onChange={e=>{ if(e.target.value) assignToJob(c.id, e.target.value); e.target.value=""; }} defaultValue="">
@@ -231,6 +236,62 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
           </table>
         </div>
       </div>
+
+      {/* ══ VIEW PROFILE MODAL (read-only, with CV link) ══ */}
+      {viewCand && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+             onClick={e=>e.target===e.currentTarget && setViewId(null)}>
+          <div style={{ background:"#fff", borderRadius:16, width:560, maxHeight:"92vh", overflowY:"auto" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"18px 22px", borderBottom:"1px solid #F3F4F6", position:"sticky", top:0, background:"#fff" }}>
+              <span style={{ fontSize:15, fontWeight:700 }}>Candidate Profile</span>
+              <button style={btn({ padding:"4px 10px" })} onClick={()=>setViewId(null)}>✕</button>
+            </div>
+            <div style={{ padding:"20px 22px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20 }}>
+                {viewCand.photo_url ? <img src={viewCand.photo_url} alt="" style={{ width:72, height:72, borderRadius:12, objectFit:"cover" }} />
+                  : <div style={{ width:72, height:72, borderRadius:12, background:"#F3F4F6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, fontWeight:700, color:"#9CA3AF" }}>{viewCand.name.charAt(0)}</div>}
+                <div>
+                  <div style={{ fontWeight:700, fontSize:17 }}>{viewCand.name}</div>
+                  <div style={{ fontSize:13, color:"#6B7280" }}>{viewCand.trade} {viewCand.experience?`· ${viewCand.experience} yrs experience`:""}</div>
+                </div>
+              </div>
+
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+                {[["Father's Name", viewCand.father_name], ["CNIC", viewCand.cnic], ["Phone", viewCand.phone], ["Email", viewCand.email],
+                  ["Passport", viewCand.passport], ["Passport Expiry", viewCand.passport_expiry?fmtDate(viewCand.passport_expiry):"—"],
+                  ["Nationality", viewCand.nationality], ["Education", viewCand.education],
+                  ["Date of Birth", viewCand.date_of_birth?fmtDate(viewCand.date_of_birth):"—"], ["Source", viewCand.source]].map(([k,v])=>(
+                  <div key={k} style={{ background:"#F9FAFB", borderRadius:8, padding:"9px 11px" }}>
+                    <div style={{ fontSize:11, color:"#9CA3AF", textTransform:"uppercase" }}>{k}</div>
+                    <div style={{ fontSize:13, fontWeight:600, wordBreak:"break-word" }}>{v || "—"}</div>
+                  </div>
+                ))}
+              </div>
+
+              {viewCand.databank_notes && (
+                <div style={{ background:"#FFFBEB", border:"1px solid #FDE68A", borderRadius:8, padding:"10px 12px", marginBottom:16, fontSize:13 }}>
+                  <div style={{ fontSize:11, color:"#92400E", fontWeight:600, marginBottom:4 }}>NOTES</div>
+                  {viewCand.databank_notes}
+                </div>
+              )}
+
+              <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+                {viewCand.cv_url ? (
+                  <a href={viewCand.cv_url} target="_blank" rel="noreferrer" style={{ ...btn({ background:"#EEF2FF", color:"#4338CA", borderColor:"#C7D2FE", textAlign:"center", flex:1 }), textDecoration:"none", display:"inline-block" }}>📄 View CV</a>
+                ) : (
+                  <div style={{ flex:1, textAlign:"center", padding:"8px 14px", fontSize:13, color:"#9CA3AF", border:"1px dashed #E5E7EB", borderRadius:8 }}>No CV uploaded</div>
+                )}
+                {viewCand.phone && <a href={`tel:${viewCand.phone}`} style={{ ...btn({ color:"#3B82F6", borderColor:"#BFDBFE", textAlign:"center", flex:1 }), textDecoration:"none", display:"inline-block" }}>📞 Call</a>}
+              </div>
+
+              <div style={{ display:"flex", gap:10, justifyContent:"flex-end", paddingTop:14, borderTop:"1px solid #F3F4F6" }}>
+                <button style={btn()} onClick={()=>setViewId(null)}>Close</button>
+                <button style={pri} onClick={()=>{ setViewId(null); openEdit(viewCand); }}>Edit Profile</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.5)", zIndex:300, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
@@ -269,9 +330,12 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 <FR label="Source"><input style={inp} value={cf.source} onChange={e=>setCf(f=>({...f,source:e.target.value}))} placeholder="Walk-in, referral, agent…" /></FR>
                 <FR label="CV File">
                   <input ref={cvInputRef} type="file" accept=".pdf,.doc,.docx" style={{ display:"none" }} onChange={handleCvUpload} />
-                  <button style={btn({ fontSize:12, width:"100%" })} onClick={()=>cvInputRef.current.click()} disabled={uploading}>
-                    {cf.cv_url ? "✓ CV Uploaded — Replace" : "Upload CV File"}
-                  </button>
+                  <div style={{ display:"flex", gap:6 }}>
+                    <button style={btn({ fontSize:12, flex:1 })} onClick={()=>cvInputRef.current.click()} disabled={uploading}>
+                      {cf.cv_url ? "Replace CV" : "Upload CV File"}
+                    </button>
+                    {cf.cv_url && <a href={cf.cv_url} target="_blank" rel="noreferrer" style={{ ...btn({ fontSize:12, color:"#4338CA", borderColor:"#C7D2FE" }), textDecoration:"none", display:"inline-flex", alignItems:"center" }}>View</a>}
+                  </div>
                 </FR>
               </div>
               <FR label="Notes" span><textarea style={{ ...inp, minHeight:60, resize:"vertical" }} value={cf.databank_notes} onChange={e=>setCf(f=>({...f,databank_notes:e.target.value}))} /></FR>
