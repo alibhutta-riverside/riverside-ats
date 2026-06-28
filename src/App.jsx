@@ -131,8 +131,14 @@ function FR({label,children,span}) {
 }
 
 export default function App() {
-  // Public job application page — no login required. Accessed via ?apply=1 in the URL.
-  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("apply")) {
+  // Public job application page — no login required.
+  // Triggered either by a dedicated subdomain (careers./jobs./apply.riverside.com.pk)
+  // or by ?apply=1 for testing on the default Vercel URL.
+  const isPublicApplyPage = typeof window !== "undefined" && (
+    new URLSearchParams(window.location.search).get("apply") ||
+    /^(careers|jobs|apply)\./i.test(window.location.hostname)
+  );
+  if (isPublicApplyPage) {
     return <ApplyForm />;
   }
   return <AppInner />;
