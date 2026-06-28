@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 import { STAGES, STAGE_MAP, COUNTRIES, YNP, PP_STATUSES, TRADE_TEST_OPTS, EMPTY_CAND, EMPTY_JOB, uid, fmtDate, today, todayISO, daysUntil, sanitizeForDb } from "./lib/constants";
 import Login from "./components/Login";
+import ApplyForm from "./components/ApplyForm";
 import Databank from "./components/Databank";
 import CrmDashboard from "./crm/CrmDashboard";
 import ClientList from "./crm/ClientList";
@@ -130,6 +131,14 @@ function FR({label,children,span}) {
 }
 
 export default function App() {
+  // Public job application page — no login required. Accessed via ?apply=1 in the URL.
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("apply")) {
+    return <ApplyForm />;
+  }
+  return <AppInner />;
+}
+
+function AppInner() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
