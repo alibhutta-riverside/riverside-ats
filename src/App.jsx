@@ -408,7 +408,8 @@ function AppInner() {
 
   const totalDeployed = assignedCands.filter(c=>c.stage==="deployed").length;
   const totalActive = assignedCands.filter(c=>!["deployed","rejected"].includes(c.stage)).length;
-  const passportExpiring = visibleCandsAll.filter(c=>{ const d=daysUntil(c.passport_expiry); return d!==null && d<90; });
+  const passportExpired = visibleCandsAll.filter(c=>{ const d=daysUntil(c.passport_expiry); return d!==null && d<0; });
+  const passportExpiring = visibleCandsAll.filter(c=>{ const d=daysUntil(c.passport_expiry); return d!==null && d>=0 && d<90; });
   const medicalExpiring = visibleCandsAll.filter(c=>{ const d=daysUntil(c.medical_expiry); return d!==null && d<30 && d>=0; });
 
   // ── STYLE TOKENS ──
@@ -528,10 +529,21 @@ function AppInner() {
                 <StatCard label="Open Job Orders" value={visibleJobs.filter(j=>j.status==="Open").length} sub="Active demands" accent="#3B82F6"/>
               </div>
 
-              {(passportExpiring.length>0 || medicalExpiring.length>0) && (
+              {(passportExpired.length>0 || passportExpiring.length>0 || medicalExpiring.length>0) && (
                 <div style={{...card,border:"1px solid #FEE2E2",marginBottom:16}}>
                   <div style={{padding:"12px 18px",background:"#FEF2F2",borderBottom:"1px solid #FEE2E2",fontWeight:700,fontSize:13,color:"#991B1B"}}>⚠ Expiry Alerts</div>
                   <div style={{padding:16}}>
+                    {passportExpired.length>0 && <>
+                      <div style={{fontSize:12,fontWeight:700,color:"#7F1D1D",marginBottom:8}}>🚨 Passport ALREADY EXPIRED ({passportExpired.length})</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:(passportExpiring.length||medicalExpiring.length)?16:0}}>
+                        {passportExpired.map(c=>(
+                          <div key={c.id} style={{background:"#FEE2E2",border:"1.5px solid #DC2626",borderRadius:8,padding:"8px 14px",cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
+                            <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
+                            <div style={{fontSize:12,color:"#7F1D1D",fontWeight:600}}>Expired: {fmtDate(c.passport_expiry)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>}
                     {passportExpiring.length>0 && <>
                       <div style={{fontSize:12,fontWeight:600,color:"#991B1B",marginBottom:8}}>Passport expiring within 90 days ({passportExpiring.length})</div>
                       <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:medicalExpiring.length?16:0}}>
