@@ -4,6 +4,8 @@ import { supabase } from "../lib/supabase";
 const EMPTY_APP = {
   name: "", father_name: "", phone: "", email: "", cnic: "",
   trade: "", experience: "", nationality: "", source: "Public Application",
+  has_gcc_experience: false, gcc_countries: "", gcc_experience_years: "",
+  driving_license_type: "", driving_license_country: "", driving_license_status: "",
 };
 
 export default function ApplyForm() {
@@ -115,6 +117,48 @@ export default function ApplyForm() {
 
             <label style={label}>Nationality</label>
             <input style={inp} value={form.nationality} onChange={e=>setForm(f=>({...f, nationality: e.target.value}))} placeholder="Pakistani" />
+
+            <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 10, padding: "14px 14px", marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#065F46", marginBottom: 10 }}>🌍 GCC / Foreign Work Experience</div>
+              <label style={label}>Have you worked in Saudi Arabia or another Gulf country before?</label>
+              <select style={inp} value={form.has_gcc_experience ? "yes" : "no"} onChange={e=>setForm(f=>({...f, has_gcc_experience: e.target.value==="yes"}))}>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+              {form.has_gcc_experience && (
+                <>
+                  <label style={label}>Which country/countries?</label>
+                  <input style={inp} value={form.gcc_countries} onChange={e=>setForm(f=>({...f, gcc_countries: e.target.value}))} placeholder="Saudi Arabia, UAE, Qatar…" />
+                  <label style={label}>How many years of experience there?</label>
+                  <input style={inp} value={form.gcc_experience_years} onChange={e=>setForm(f=>({...f, gcc_experience_years: e.target.value}))} placeholder="e.g. 3" />
+                </>
+              )}
+            </div>
+
+            <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "14px 14px", marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#1E3A8A", marginBottom: 10 }}>🚛 Driving License (if applicable)</div>
+              <label style={label}>Do you hold a driving license?</label>
+              <select style={inp} value={form.driving_license_type} onChange={e=>setForm(f=>({...f, driving_license_type: e.target.value}))}>
+                <option value="">No / Not applicable</option>
+                <option value="Light Vehicle">Light Vehicle</option>
+                <option value="Heavy Truck">Heavy Truck</option>
+                <option value="Trailer">Trailer</option>
+                <option value="Dyna">Dyna</option>
+                <option value="Heavy Equipment">Heavy Equipment</option>
+              </select>
+              {form.driving_license_type && (
+                <>
+                  <label style={label}>Which country issued this license?</label>
+                  <input style={inp} value={form.driving_license_country} onChange={e=>setForm(f=>({...f, driving_license_country: e.target.value}))} placeholder="Saudi Arabia, Pakistan…" />
+                  <label style={label}>Is it currently valid or expired?</label>
+                  <select style={inp} value={form.driving_license_status} onChange={e=>setForm(f=>({...f, driving_license_status: e.target.value}))}>
+                    <option value="">—</option>
+                    <option value="Valid">Valid</option>
+                    <option value="Expired">Expired</option>
+                  </select>
+                </>
+              )}
+            </div>
 
             <label style={label}>CV File (PDF or Word, max 10MB) *</label>
             <input ref={cvInputRef} type="file" accept=".pdf,.doc,.docx" style={{ display: "none" }}
