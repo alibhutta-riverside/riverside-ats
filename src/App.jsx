@@ -52,26 +52,26 @@ function exportExcel(cands, jobs, jobId, positions=[]) {
   wsCover["!merges"] = [{s:{r:1,c:1},e:{r:1,c:5}},{s:{r:2,c:1},e:{r:2,c:5}},{s:{r:4,c:1},e:{r:4,c:5}},{s:{r:10,c:1},e:{r:10,c:5}},{s:{r:13+allPos.length,c:1},e:{r:13+allPos.length,c:5}}];
   XLSX.utils.book_append_sheet(wb, wsCover, "Summary");
 
-  const headers = ["S.No","Full Name","Father Name","CNIC","Phone","Trade","Exp.","Passport","Pass. Expiry","Stage",
+  const headers = ["S.No","Full Name","Father Name","CNIC","Phone","Trade","Exp.","Passport","Pass. Expiry","Stage","Salary (SAR)",
     "Offer Letter","Contract","Electronic No.","Visa Auth Date","Visa No.","Visa Issue Date",
     "Medical","Medical Date","Medical Expiry","Trade Test","Trade Test Date",
     "PP Status","PP Sub Date","Dispatch Date","Recv. Embassy","Stamping Date","BEOE","BEOE Perm #","BEOE Reg #","BEOE Fee","Flight Date","Objection","Remarks"];
   const rows = list.map((c,i)=>[
-    i+1,c.name,c.father_name,c.cnic,c.phone,c.trade,c.experience,c.passport,c.passport_expiry?fmtDate(c.passport_expiry):"",STAGE_MAP[c.stage]?.label||c.stage,
+    i+1,c.name,c.father_name,c.cnic,c.phone,c.trade,c.experience,c.passport,c.passport_expiry?fmtDate(c.passport_expiry):"",STAGE_MAP[c.stage]?.label||c.stage,c.offered_salary||job.salary||"—",
     c.offer_letter,c.contract,c.electronic_no,c.visa_auth_date?fmtDate(c.visa_auth_date):"",c.visa_no,c.visa_issue_date?fmtDate(c.visa_issue_date):"",
     c.medical_status,c.medical_date?fmtDate(c.medical_date):"",c.medical_expiry?fmtDate(c.medical_expiry):"",c.trade_test_status,c.trade_test_date?fmtDate(c.trade_test_date):"",
     c.pp_sub_status,c.pp_sub_date?fmtDate(c.pp_sub_date):"",c.pp_dispatch_date?fmtDate(c.pp_dispatch_date):"",c.pp_received_date?fmtDate(c.pp_received_date):"",c.stamping_date?fmtDate(c.stamping_date):"",c.beoe_status,c.beoe_permission_no||"",c.beoe_registration_no||"",c.beoe_fee_paid||"",c.flight_date?fmtDate(c.flight_date):"",c.objection,c.remarks
   ]);
   const wsData = XLSX.utils.aoa_to_sheet([[`STATUS REPORT — ${job.client.toUpperCase()} | ${job.ref} | ${positionLabel} | ${today()}`],[],headers,...rows]);
   wsData["!cols"] = headers.map(()=>({wch:16}));
-  wsData["!merges"] = [{s:{r:0,c:0},e:{r:0,c:33}}];
+  wsData["!merges"] = [{s:{r:0,c:0},e:{r:0,c:34}}];
   XLSX.utils.book_append_sheet(wb, wsData, "Candidate Status");
 
-  const clientHeaders = ["S.No","Name","Trade","Passport No.","Stage","Medical","Visa No.","Flight Date","Status / Remarks"];
-  const clientRows = list.map((c,i)=>[i+1,c.name,c.trade,c.passport,STAGE_MAP[c.stage]?.label||c.stage,c.medical_status||(c.medical_date?"Done":"—"),c.visa_no||"—",c.flight_date?fmtDate(c.flight_date):"—",c.objection?`⚠ ${c.objection}`:c.remarks||"In process"]);
+  const clientHeaders = ["S.No","Name","Trade","Passport No.","Stage","Salary (SAR)","Medical","Visa No.","Flight Date","Status / Remarks"];
+  const clientRows = list.map((c,i)=>[i+1,c.name,c.trade,c.passport,STAGE_MAP[c.stage]?.label||c.stage,c.offered_salary||job.salary||"—",c.medical_status||(c.medical_date?"Done":"—"),c.visa_no||"—",c.flight_date?fmtDate(c.flight_date):"—",c.objection?`⚠ ${c.objection}`:c.remarks||"In process"]);
   const wsClient = XLSX.utils.aoa_to_sheet([[`CLIENT UPDATE — ${job.client} | ${positionLabel} | Ref: ${job.ref} | ${today()}`],[`Riverside Enterprises Recruitment Consultants, Lahore | Total Vacancies: ${totalVac} | Deployed: ${filled}`],[],clientHeaders,...clientRows]);
-  wsClient["!cols"] = [{wch:5},{wch:22},{wch:16},{wch:14},{wch:22},{wch:10},{wch:13},{wch:13},{wch:30}];
-  wsClient["!merges"] = [{s:{r:0,c:0},e:{r:0,c:8}},{s:{r:1,c:0},e:{r:1,c:8}}];
+  wsClient["!cols"] = [{wch:5},{wch:22},{wch:16},{wch:14},{wch:22},{wch:14},{wch:10},{wch:13},{wch:13},{wch:30}];
+  wsClient["!merges"] = [{s:{r:0,c:0},e:{r:0,c:9}},{s:{r:1,c:0},e:{r:1,c:9}}];
   XLSX.utils.book_append_sheet(wb, wsClient, "Client Update");
 
   XLSX.writeFile(wb, `Riverside_${job.client.replace(/\s+/g,"_")}_${job.ref}_${today().replace(/\//g,"-")}.xlsx`);
@@ -90,7 +90,13 @@ function buildWA(cands, jobs, jobId, positions=[]) {
   ];
   const totalVac = allPos.reduce((s,p)=>s+(Number(p.required_count)||0),0);
   const positionLines = allPos.map(p=>`  ▸ ${p.position_name} — ${p.required_count} vacancies${p.salary?` @ SAR ${p.salary}`:""}`).join("\n");
-  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Country:* ${job.country}, ${job.city}\n\n*Job Positions:*\n${positionLines}\n*Total Vacancies:* ${totalVac}\n\n*Pipeline Breakdown:*\n${lines}\n\n✅ *Deployed:* ${deployed} of ${totalVac}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
+
+  // Salary breakdown: group candidates by their actual offered salary (falls back to job default)
+  const salaryGroups = {};
+  list.forEach(c => { const sal = c.offered_salary || job.salary || "Not set"; salaryGroups[sal] = (salaryGroups[sal]||0) + 1; });
+  const salaryLines = Object.entries(salaryGroups).map(([sal,n]) => `  ▸ SAR ${sal}: *${n}* candidate${n>1?"s":""}`).join("\n");
+
+  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Country:* ${job.country}, ${job.city}\n\n*Job Positions:*\n${positionLines}\n*Total Vacancies:* ${totalVac}\n\n*Pipeline Breakdown:*\n${lines}\n\n*Salary Breakdown (Actual Offered):*\n${salaryLines}\n\n✅ *Deployed:* ${deployed} of ${totalVac}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
 }
 
 // ─── SMALL COMPONENTS ────────────────────────────────────────────────────────
@@ -584,7 +590,7 @@ function AppInner() {
               <div style={card}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse"}}>
-                    <thead><tr>{["","Name & Trade","Passport","Job Order","Stage","Medical","Visa No.","Actions"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <thead><tr>{["","Name & Trade","Passport","Job Order","Salary","Stage","Medical","Visa No.","Actions"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
                     <tbody>
                       {visibleCands.length?visibleCands.map(c=>{
                         const job=jobs.find(j=>j.id===c.job_id);
@@ -594,6 +600,10 @@ function AppInner() {
                           <td style={td}><div style={{fontWeight:600,color:"#111827"}}>{c.name}</div><div style={{fontSize:12,color:"#6B7280"}}>{c.trade}</div></td>
                           <td style={td}><div style={{fontFamily:"monospace",fontSize:12}}>{c.passport||"—"}</div><div style={{fontSize:11,color:isExp?"#EF4444":"#9CA3AF"}}>{fmtDate(c.passport_expiry)}</div></td>
                           <td style={td}><div style={{fontSize:12,fontWeight:500}}>{job?job.ref:"—"}</div><div style={{fontSize:11,color:"#6B7280"}}>{job?job.client:""}</div></td>
+                          <td style={td}>
+                            <div style={{fontSize:12,fontWeight:600,color:c.offered_salary?"#059669":"#6B7280"}}>{c.offered_salary || job?.salary || "—"}</div>
+                            {c.offered_salary && job?.salary && c.offered_salary!==job.salary && <div style={{fontSize:10,color:"#9CA3AF"}}>job default: {job.salary}</div>}
+                          </td>
                           <td style={td}><StagePill stageId={c.stage}/></td>
                           <td style={td}><Dot val={c.medical_status}/></td>
                           <td style={{...td,fontFamily:"monospace",fontSize:12}}>{c.visa_no||"—"}</td>
@@ -604,7 +614,7 @@ function AppInner() {
                             </div>
                           </td>
                         </tr>;
-                      }):<tr><td colSpan={8} style={{textAlign:"center",padding:40,color:"#9CA3AF"}}>No candidates assigned to job orders yet. Assign from CV Databank.</td></tr>}
+                      }):<tr><td colSpan={9} style={{textAlign:"center",padding:40,color:"#9CA3AF"}}>No candidates assigned to job orders yet. Assign from CV Databank.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -805,7 +815,7 @@ function AppInner() {
             <div style={{padding:"14px 16px",flex:1,overflowY:"auto"}}>
               {dtab==="overview"&&(
                 <div style={{display:"grid",gridTemplateColumns:"1fr",gap:10}}>
-                  {[["CNIC",dc.cnic],["Phone",dc.phone],["Father's Name",dc.father_name],["Experience",dc.experience?dc.experience+" years":"—"],["Job Order",djob?.ref||"Unassigned"],["Client",djob?.client||"—"],["Passport",dc.passport],["Pass. Expiry",fmtDate(dc.passport_expiry)]].map(([k,v])=>(
+                  {[["CNIC",dc.cnic],["Phone",dc.phone],["Father's Name",dc.father_name],["Experience",dc.experience?dc.experience+" years":"—"],["Job Order",djob?.ref||"Unassigned"],["Client",djob?.client||"—"],["Offered Salary (SAR)",dc.offered_salary?`${dc.offered_salary} (custom)`:(djob?.salary?`${djob.salary} (job default)`:"—")],["Passport",dc.passport],["Pass. Expiry",fmtDate(dc.passport_expiry)]].map(([k,v])=>(
                     <div key={k} style={{background:"#F9FAFB",borderRadius:8,padding:"9px 11px"}}>
                       <div style={{fontSize:11,color:"#9CA3AF",textTransform:"uppercase",marginBottom:2}}>{k}</div>
                       <div style={{fontSize:12,fontWeight:600,wordBreak:"break-word"}}>{v||"—"}</div>
@@ -881,6 +891,10 @@ function AppInner() {
           <FR label="Passport Expiry"><input key="passport_expiry" style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
           <FR label="Stage"><select key="stage" style={inp} value={cf.stage} onChange={e=>setCf(f=>({...f,stage:e.target.value}))}>{STAGES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></FR>
           <FR label="Job Order"><select key="job_id" style={inp} value={cf.job_id||""} onChange={e=>setCf(f=>({...f,job_id:e.target.value||null}))}><option value="">— Unassigned —</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client}</option>)}</select></FR>
+          <FR label="Offered Salary (SAR)">
+            <input style={inp} type="number" value={cf.offered_salary||""} onChange={e=>setCf(f=>({...f,offered_salary:e.target.value}))}
+              placeholder={(()=>{ const j=visibleJobs.find(j=>j.id===cf.job_id); return j?.salary ? `Default: ${j.salary}` : "e.g. 2000"; })()} />
+          </FR>
 
           <FR label="Offer Letter"><select style={inp} value={cf.offer_letter} onChange={e=>setCf(f=>({...f,offer_letter:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
           <FR label="Contract Signed"><select style={inp} value={cf.contract} onChange={e=>setCf(f=>({...f,contract:e.target.value}))}>{YNP.map(v=><option key={v}>{v}</option>)}</select></FR>
