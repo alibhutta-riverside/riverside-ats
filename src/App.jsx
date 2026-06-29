@@ -648,7 +648,7 @@ function AppInner() {
             <div>
               <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
                 <select style={{...inp,width:"auto",minWidth:260,marginBottom:0}} value={jobFil} onChange={e=>setJobFil(e.target.value)}>
-                  <option value="">All job orders (combined view)</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} — {j.position}</option>)}
+                  <option value="">All job orders (combined view)</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} — {[j.position, ...positions.filter(p=>p.job_id===j.id).map(p=>p.position_name)].filter(Boolean).join(", ")}</option>)}
                 </select>
                 <div style={{display:"flex",gap:12,fontSize:11,color:"#6B7280",alignItems:"center"}}>
                   <span style={{fontWeight:600}}>Time at current stage:</span>
@@ -661,9 +661,10 @@ function AppInner() {
                 const jcands=assignedCands.filter(c=>c.job_id===j.id);
                 if(!jcands.length) return null;
                 const jTotalVac=(Number(j.vacancies)||0) + positions.filter(p=>p.job_id===j.id).reduce((sum,p)=>sum+(Number(p.required_count)||0),0);
+                const jAllPositionNames=[j.position, ...positions.filter(p=>p.job_id===j.id).map(p=>p.position_name)].filter(Boolean).join(", ");
                 return <div key={j.id} style={{...card,marginBottom:20}}>
                   <div style={{padding:"14px 18px",borderBottom:"1px solid #F3F4F6",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                    <div><span style={{fontWeight:700,fontSize:14}}>{j.client}</span><span style={{fontSize:12,color:"#6B7280",marginLeft:10}}>{j.ref} · {j.position}</span></div>
+                    <div><span style={{fontWeight:700,fontSize:14}}>{j.client}</span><span style={{fontSize:12,color:"#6B7280",marginLeft:10}}>{j.ref} · {jAllPositionNames}</span></div>
                     <div style={{fontSize:12,color:"#6B7280"}}>{jcands.length} candidate(s) · Vacancies: {jTotalVac}</div>
                   </div>
                   <div style={{overflowX:"auto",padding:"14px 18px"}}>
