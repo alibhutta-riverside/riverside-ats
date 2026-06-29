@@ -11,6 +11,11 @@ import CampaignManager from "./crm/CampaignManager";
 import CrmReports from "./crm/CrmReports";
 import * as XLSX from "xlsx";
 
+const daysSinceDate = (dateStr) => {
+  if (!dateStr) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000));
+};
+
 // ─── EXCEL EXPORT ─────────────────────────────────────────────────────────────
 function exportExcel(cands, jobs, jobId, positions=[]) {
   const job = jobs.find(j=>j.id===jobId);
@@ -52,26 +57,27 @@ function exportExcel(cands, jobs, jobId, positions=[]) {
   wsCover["!merges"] = [{s:{r:1,c:1},e:{r:1,c:5}},{s:{r:2,c:1},e:{r:2,c:5}},{s:{r:4,c:1},e:{r:4,c:5}},{s:{r:10,c:1},e:{r:10,c:5}},{s:{r:13+allPos.length,c:1},e:{r:13+allPos.length,c:5}}];
   XLSX.utils.book_append_sheet(wb, wsCover, "Summary");
 
-  const headers = ["S.No","Full Name","Father Name","CNIC","Phone","Trade","Exp.","Passport","Pass. Expiry","Stage","Salary (SAR)",
+  const headers = ["S.No","Full Name","Father Name","CNIC","Phone","Trade","Exp.","Passport","Pass. Expiry","Stage","Days in Stage","Total Days","Est. Completion","Salary (SAR)",
     "Offer Letter","Contract","Electronic No.","Visa Auth Date","Visa No.","Visa Issue Date",
     "Medical","Medical Date","Medical Expiry","Trade Test","Trade Test Date",
     "PP Status","PP Sub Date","Dispatch Date","Recv. Embassy","Stamping Date","BEOE","BEOE Perm #","BEOE Reg #","BEOE Fee","Flight Date","Objection","Remarks"];
   const rows = list.map((c,i)=>[
-    i+1,c.name,c.father_name,c.cnic,c.phone,c.trade,c.experience,c.passport,c.passport_expiry?fmtDate(c.passport_expiry):"",STAGE_MAP[c.stage]?.label||c.stage,c.offered_salary||job.salary||"—",
+    i+1,c.name,c.father_name,c.cnic,c.phone,c.trade,c.experience,c.passport,c.passport_expiry?fmtDate(c.passport_expiry):"",STAGE_MAP[c.stage]?.label||c.stage,
+    daysSinceDate(c.stage_updated_at)??"—",daysSinceDate(c.added_date)??"—",c.estimated_completion_date?fmtDate(c.estimated_completion_date):"—",c.offered_salary||job.salary||"—",
     c.offer_letter,c.contract,c.electronic_no,c.visa_auth_date?fmtDate(c.visa_auth_date):"",c.visa_no,c.visa_issue_date?fmtDate(c.visa_issue_date):"",
     c.medical_status,c.medical_date?fmtDate(c.medical_date):"",c.medical_expiry?fmtDate(c.medical_expiry):"",c.trade_test_status,c.trade_test_date?fmtDate(c.trade_test_date):"",
     c.pp_sub_status,c.pp_sub_date?fmtDate(c.pp_sub_date):"",c.pp_dispatch_date?fmtDate(c.pp_dispatch_date):"",c.pp_received_date?fmtDate(c.pp_received_date):"",c.stamping_date?fmtDate(c.stamping_date):"",c.beoe_status,c.beoe_permission_no||"",c.beoe_registration_no||"",c.beoe_fee_paid||"",c.flight_date?fmtDate(c.flight_date):"",c.objection,c.remarks
   ]);
   const wsData = XLSX.utils.aoa_to_sheet([[`STATUS REPORT — ${job.client.toUpperCase()} | ${job.ref} | ${positionLabel} | ${today()}`],[],headers,...rows]);
   wsData["!cols"] = headers.map(()=>({wch:16}));
-  wsData["!merges"] = [{s:{r:0,c:0},e:{r:0,c:34}}];
+  wsData["!merges"] = [{s:{r:0,c:0},e:{r:0,c:36}}];
   XLSX.utils.book_append_sheet(wb, wsData, "Candidate Status");
 
-  const clientHeaders = ["S.No","Name","Trade","Passport No.","Stage","Salary (SAR)","Medical","Visa No.","Flight Date","Status / Remarks"];
-  const clientRows = list.map((c,i)=>[i+1,c.name,c.trade,c.passport,STAGE_MAP[c.stage]?.label||c.stage,c.offered_salary||job.salary||"—",c.medical_status||(c.medical_date?"Done":"—"),c.visa_no||"—",c.flight_date?fmtDate(c.flight_date):"—",c.objection?`⚠ ${c.objection}`:c.remarks||"In process"]);
+  const clientHeaders = ["S.No","Name","Trade","Passport No.","Stage","Days at Stage","Est. Completion","Salary (SAR)","Medical","Visa No.","Flight Date","Status / Remarks"];
+  const clientRows = list.map((c,i)=>[i+1,c.name,c.trade,c.passport,STAGE_MAP[c.stage]?.label||c.stage,daysSinceDate(c.stage_updated_at)??"—",c.estimated_completion_date?fmtDate(c.estimated_completion_date):"TBC",c.offered_salary||job.salary||"—",c.medical_status||(c.medical_date?"Done":"—"),c.visa_no||"—",c.flight_date?fmtDate(c.flight_date):"—",c.objection?`⚠ ${c.objection}`:c.remarks||"In process"]);
   const wsClient = XLSX.utils.aoa_to_sheet([[`CLIENT UPDATE — ${job.client} | ${positionLabel} | Ref: ${job.ref} | ${today()}`],[`Riverside Enterprises Recruitment Consultants, Lahore | Total Vacancies: ${totalVac} | Deployed: ${filled}`],[],clientHeaders,...clientRows]);
-  wsClient["!cols"] = [{wch:5},{wch:22},{wch:16},{wch:14},{wch:22},{wch:14},{wch:10},{wch:13},{wch:13},{wch:30}];
-  wsClient["!merges"] = [{s:{r:0,c:0},e:{r:0,c:9}},{s:{r:1,c:0},e:{r:1,c:9}}];
+  wsClient["!cols"] = [{wch:5},{wch:22},{wch:16},{wch:14},{wch:22},{wch:12},{wch:14},{wch:14},{wch:10},{wch:13},{wch:13},{wch:30}];
+  wsClient["!merges"] = [{s:{r:0,c:0},e:{r:0,c:11}},{s:{r:1,c:0},e:{r:1,c:11}}];
   XLSX.utils.book_append_sheet(wb, wsClient, "Client Update");
 
   XLSX.writeFile(wb, `Riverside_${job.client.replace(/\s+/g,"_")}_${job.ref}_${today().replace(/\//g,"-")}.xlsx`);
@@ -96,7 +102,11 @@ function buildWA(cands, jobs, jobId, positions=[]) {
   list.forEach(c => { const sal = c.offered_salary || job.salary || "Not set"; salaryGroups[sal] = (salaryGroups[sal]||0) + 1; });
   const salaryLines = Object.entries(salaryGroups).map(([sal,n]) => `  ▸ SAR ${sal}: *${n}* candidate${n>1?"s":""}`).join("\n");
 
-  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Country:* ${job.country}, ${job.city}\n\n*Job Positions:*\n${positionLines}\n*Total Vacancies:* ${totalVac}\n\n*Pipeline Breakdown:*\n${lines}\n\n*Salary Breakdown (Actual Offered):*\n${salaryLines}\n\n✅ *Deployed:* ${deployed} of ${totalVac}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
+  // Flag anyone stuck at their current stage for over a week, so the client sees it without asking
+  const stuck = list.filter(c => !["deployed","rejected"].includes(c.stage) && (daysSinceDate(c.stage_updated_at) ?? 0) > 7);
+  const stuckLines = stuck.length ? `\n\n⏱ *Needs attention (7+ days at current stage):*\n` + stuck.map(c => `  ▸ ${c.name} — ${STAGE_MAP[c.stage]?.label} (${daysSinceDate(c.stage_updated_at)} days)`).join("\n") : "";
+
+  return `🏢 *RIVERSIDE ENTERPRISES*\n_Overseas Recruitment Consultants, Lahore_\n\n📋 *Status Update — ${job.client}*\n━━━━━━━━━━━━━━━━━━━\n*Order Ref:* ${job.ref}\n*Country:* ${job.country}, ${job.city}\n\n*Job Positions:*\n${positionLines}\n*Total Vacancies:* ${totalVac}\n\n*Pipeline Breakdown:*\n${lines}\n\n*Salary Breakdown (Actual Offered):*\n${salaryLines}${stuckLines}\n\n✅ *Deployed:* ${deployed} of ${totalVac}\n🔄 *In Process:* ${inProcess}\n\n📅 *Date:* ${today()}\n━━━━━━━━━━━━━━━━━━━\n_Riverside Enterprises Recruitment Consultants_`;
 }
 
 // ─── SMALL COMPONENTS ────────────────────────────────────────────────────────
@@ -368,12 +378,21 @@ function AppInner() {
   };
   
   const moveStage = async (cid, sid) => {
-    const { error } = await supabase.from("candidates").update({ stage: sid }).eq("id", cid);
+    const { error } = await supabase.from("candidates").update({ stage: sid, stage_updated_at: new Date().toISOString() }).eq("id", cid);
     if (error) { alert(error.message); return; }
     const c = cands.find(x=>x.id===cid);
     addLog(`${c?.name} → ${STAGE_MAP[sid]?.label}`);
     fetchAll();
   };
+
+  // Helpers for the stage-timeline feature: how long has this candidate sat at their current stage,
+  // and how long since they first entered the pipeline overall.
+  const daysSince = (dateStr) => {
+    if (!dateStr) return null;
+    const diff = Date.now() - new Date(dateStr).getTime();
+    return Math.max(0, Math.floor(diff / 86400000));
+  };
+  const stageDurationColor = (days) => days === null ? "#9CA3AF" : days <= 3 ? "#10B981" : days <= 7 ? "#F59E0B" : "#EF4444";
 
   const dc = detailId ? cands.find(c=>c.id===detailId) : null;
   const djob = dc ? jobs.find(j=>j.id===dc.job_id) : null;
@@ -590,11 +609,12 @@ function AppInner() {
               <div style={card}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse"}}>
-                    <thead><tr>{["","Name & Trade","Passport","Job Order","Salary","Stage","Medical","Visa No.","Actions"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <thead><tr>{["","Name & Trade","Passport","Job Order","Salary","Stage","Time in Stage","Medical","Visa No.","Actions"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
                     <tbody>
                       {visibleCands.length?visibleCands.map(c=>{
                         const job=jobs.find(j=>j.id===c.job_id);
                         const isExp=passportExpiring.find(x=>x.id===c.id);
+                        const stageDays=daysSince(c.stage_updated_at);
                         return <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
                           <td style={td}><Avatar url={c.photo_url} name={c.name}/></td>
                           <td style={td}><div style={{fontWeight:600,color:"#111827"}}>{c.name}</div><div style={{fontSize:12,color:"#6B7280"}}>{c.trade}</div>{c.status_note && <div style={{fontSize:10,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"2px 5px",marginTop:3,display:"inline-block"}}>⚠ {c.status_note}</div>}</td>
@@ -605,6 +625,7 @@ function AppInner() {
                             {c.offered_salary && job?.salary && c.offered_salary!==job.salary && <div style={{fontSize:10,color:"#9CA3AF"}}>job default: {job.salary}</div>}
                           </td>
                           <td style={td}><StagePill stageId={c.stage}/></td>
+                          <td style={td}><span style={{fontSize:12,fontWeight:700,color:stageDurationColor(stageDays)}}>{stageDays===null?"—":`${stageDays} day${stageDays!==1?"s":""}`}</span></td>
                           <td style={td}><Dot val={c.medical_status}/></td>
                           <td style={{...td,fontFamily:"monospace",fontSize:12}}>{c.visa_no||"—"}</td>
                           <td style={td} onClick={e=>e.stopPropagation()}>
@@ -614,7 +635,7 @@ function AppInner() {
                             </div>
                           </td>
                         </tr>;
-                      }):<tr><td colSpan={9} style={{textAlign:"center",padding:40,color:"#9CA3AF"}}>No candidates assigned to job orders yet. Assign from CV Databank.</td></tr>}
+                      }):<tr><td colSpan={10} style={{textAlign:"center",padding:40,color:"#9CA3AF"}}>No candidates assigned to job orders yet. Assign from CV Databank.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -625,10 +646,16 @@ function AppInner() {
           {/* ══ PIPELINE ══ */}
           {page==="pipeline"&&(
             <div>
-              <div style={{marginBottom:16}}>
-                <select style={{...inp,width:"auto",minWidth:260}} value={jobFil} onChange={e=>setJobFil(e.target.value)}>
+              <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+                <select style={{...inp,width:"auto",minWidth:260,marginBottom:0}} value={jobFil} onChange={e=>setJobFil(e.target.value)}>
                   <option value="">All job orders (combined view)</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} — {j.position}</option>)}
                 </select>
+                <div style={{display:"flex",gap:12,fontSize:11,color:"#6B7280",alignItems:"center"}}>
+                  <span style={{fontWeight:600}}>Time at current stage:</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#10B981"}}/>0-3 days</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#F59E0B"}}/>4-7 days</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#EF4444"}}/>7+ days</span>
+                </div>
               </div>
               {(jobFil?visibleJobs.filter(j=>j.id===jobFil):visibleJobs).map(j=>{
                 const jcands=assignedCands.filter(c=>c.job_id===j.id);
@@ -648,16 +675,21 @@ function AppInner() {
                             <span style={{fontSize:11,fontWeight:600,color:"#374151"}}>{s.label}</span>
                             <span style={{marginLeft:"auto",background:"#F3F4F6",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:600}}>{sc.length}</span>
                           </div>
-                          {sc.map(c=>(
+                          {sc.map(c=>{
+                            const days = daysSince(c.stage_updated_at);
+                            return (
                             <div key={c.id} style={{background:"#fff",border:`1px solid ${s.color}30`,borderLeft:`3px solid ${s.color}`,borderRadius:8,padding:"9px 11px",marginBottom:7,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}
                               onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
-                              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                                <Avatar url={c.photo_url} name={c.name} size={28}/>
-                                <div><div style={{fontWeight:600,fontSize:12,color:"#111827"}}>{c.name}</div><div style={{fontSize:11,color:"#6B7280"}}>{c.trade}</div></div>
+                              <div style={{display:"flex",gap:8,alignItems:"center",justifyContent:"space-between"}}>
+                                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                                  <Avatar url={c.photo_url} name={c.name} size={28}/>
+                                  <div><div style={{fontWeight:600,fontSize:12,color:"#111827"}}>{c.name}</div><div style={{fontSize:11,color:"#6B7280"}}>{c.trade}</div></div>
+                                </div>
+                                <span style={{fontSize:10,fontWeight:700,color:stageDurationColor(days),whiteSpace:"nowrap",flexShrink:0}}>{days===null?"—":`${days}d`}</span>
                               </div>
                               {c.status_note && <div style={{fontSize:10,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"3px 6px",marginTop:6}}>⚠ {c.status_note}</div>}
                             </div>
-                          ))}
+                          );})}
                         </div>;
                       })}
                     </div>
@@ -830,6 +862,22 @@ function AppInner() {
                       <div style={{fontSize:12,fontWeight:600,color:"#78350F",wordBreak:"break-word"}}>{dc.status_note}</div>
                     </div>
                   )}
+
+                  <div style={{background:"#F9FAFB",borderRadius:8,padding:"12px",gridColumn:"1/-1",border:"1px solid #E5E7EB"}}>
+                    <div style={{fontSize:11,color:"#6B7280",textTransform:"uppercase",marginBottom:8,fontWeight:700}}>⏱ Timeline</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                      <div>
+                        <div style={{fontSize:10,color:"#9CA3AF"}}>In pipeline since</div>
+                        <div style={{fontSize:13,fontWeight:600}}>{fmtDate(dc.added_date)} ({daysSince(dc.added_date)} days total)</div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,color:"#9CA3AF"}}>At current stage since</div>
+                        <div style={{fontSize:13,fontWeight:700,color:stageDurationColor(daysSince(dc.stage_updated_at))}}>{fmtDate(dc.stage_updated_at)} ({daysSince(dc.stage_updated_at)} days)</div>
+                      </div>
+                    </div>
+                    <div style={{fontSize:10,color:"#9CA3AF",marginBottom:4}}>Estimated completion date (shown to client in reports)</div>
+                    <input type="date" defaultValue={dc.estimated_completion_date||""} onBlur={async e=>{ await supabase.from("candidates").update({estimated_completion_date:e.target.value||null}).eq("id",dc.id); fetchAll(); }} style={{...inp,fontSize:12,marginBottom:0}} />
+                  </div>
                 </div>
               )}
               {dtab==="process"&&(
