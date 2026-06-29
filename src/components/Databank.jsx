@@ -200,7 +200,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
       ["CNIC", c.cnic], ["Phone / WhatsApp", c.phone],
     ]);
 
-    if (c.has_gcc_experience) {
+    if (c.has_gcc_experience || c.gcc_countries || c.gcc_experience_years) {
       sectionTitle("Gulf / GCC Work Experience");
       fieldRow([
         ["Countries Worked In", c.gcc_countries], ["Years of GCC Experience", c.gcc_experience_years],
@@ -210,14 +210,27 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     sectionTitle("Work Experience");
     paragraph(c.work_history || `${c.experience ? c.experience + " years" : "Experience"} as ${c.trade || "tradesperson"}.`);
 
+    if (c.skills) {
+      sectionTitle("Key Skills");
+      paragraph(c.skills);
+    }
+
     sectionTitle("Education & Qualifications");
     paragraph(c.education);
+
+    if (c.languages) {
+      sectionTitle("Languages");
+      paragraph(c.languages);
+    }
 
     sectionTitle("Certifications & Licenses");
     fieldRow([
       ["Trade Test (Takamol)", c.trade_test_status], ["Driving License", c.driving_license_type || "Not applicable"],
       ["License Country", c.driving_license_country], ["License Status", c.driving_license_status],
     ]);
+    if (c.additional_certifications) {
+      paragraph(c.additional_certifications);
+    }
 
     sectionTitle("Deployment Readiness");
     fieldRow([
@@ -477,6 +490,35 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 </div>
               )}
 
+              {(viewCand.work_history || viewCand.skills || viewCand.languages || viewCand.additional_certifications) && (
+                <div style={{ display:"grid", gap:8, marginBottom:16 }}>
+                  {viewCand.work_history && (
+                    <div style={{ background:"#F9FAFB", border:"1px solid #E5E7EB", borderRadius:8, padding:"10px 12px" }}>
+                      <div style={{ fontSize:11, color:"#374151", fontWeight:600, marginBottom:2 }}>💼 WORK HISTORY</div>
+                      <div style={{ fontSize:12, whiteSpace:"pre-wrap" }}>{viewCand.work_history}</div>
+                    </div>
+                  )}
+                  {viewCand.skills && (
+                    <div style={{ background:"#F9FAFB", border:"1px solid #E5E7EB", borderRadius:8, padding:"10px 12px" }}>
+                      <div style={{ fontSize:11, color:"#374151", fontWeight:600, marginBottom:2 }}>🛠 KEY SKILLS</div>
+                      <div style={{ fontSize:12 }}>{viewCand.skills}</div>
+                    </div>
+                  )}
+                  {viewCand.languages && (
+                    <div style={{ background:"#F9FAFB", border:"1px solid #E5E7EB", borderRadius:8, padding:"10px 12px" }}>
+                      <div style={{ fontSize:11, color:"#374151", fontWeight:600, marginBottom:2 }}>🗣 LANGUAGES</div>
+                      <div style={{ fontSize:12 }}>{viewCand.languages}</div>
+                    </div>
+                  )}
+                  {viewCand.additional_certifications && (
+                    <div style={{ background:"#F9FAFB", border:"1px solid #E5E7EB", borderRadius:8, padding:"10px 12px" }}>
+                      <div style={{ fontSize:11, color:"#374151", fontWeight:600, marginBottom:2 }}>📜 ADDITIONAL CERTIFICATIONS</div>
+                      <div style={{ fontSize:12 }}>{viewCand.additional_certifications}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ display:"flex", gap:8, marginBottom:10 }}>
                 {viewCand.cv_url ? (
                   <a href={viewCand.cv_url} target="_blank" rel="noreferrer" style={{ ...btn({ background:"#EEF2FF", color:"#4338CA", borderColor:"#C7D2FE", textAlign:"center", flex:1 }), textDecoration:"none", display:"inline-block" }}>📄 View Original CV</a>
@@ -602,6 +644,9 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 </FR>
               </div>
               <FR label="Work History (shown on Standard CV — e.g. 'XYZ Construction, Riyadh — Site Electrician, 2021-2023')" span><textarea style={{ ...inp, minHeight:70, resize:"vertical" }} value={cf.work_history||""} onChange={e=>setCf(f=>({...f,work_history:e.target.value}))} placeholder="Brief work history narrative — employer, role, duration" /></FR>
+              <FR label="Key Skills" span><input style={inp} value={cf.skills||""} onChange={e=>setCf(f=>({...f,skills:e.target.value}))} placeholder="e.g. MIG/TIG welding, blueprint reading, forklift operation" /></FR>
+              <FR label="Languages Spoken" span><input style={inp} value={cf.languages||""} onChange={e=>setCf(f=>({...f,languages:e.target.value}))} placeholder="e.g. Urdu (native), English (intermediate), Arabic (basic)" /></FR>
+              <FR label="Additional Certifications (beyond trade test)" span><input style={inp} value={cf.additional_certifications||""} onChange={e=>setCf(f=>({...f,additional_certifications:e.target.value}))} placeholder="e.g. Forklift License, OSHA Safety Course, First Aid" /></FR>
               <FR label="Notes" span><textarea style={{ ...inp, minHeight:60, resize:"vertical" }} value={cf.databank_notes} onChange={e=>setCf(f=>({...f,databank_notes:e.target.value}))} /></FR>
 
               <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:16, paddingTop:14, borderTop:"1px solid #F3F4F6" }}>
