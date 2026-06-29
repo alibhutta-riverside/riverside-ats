@@ -660,10 +660,11 @@ function AppInner() {
               {(jobFil?visibleJobs.filter(j=>j.id===jobFil):visibleJobs).map(j=>{
                 const jcands=assignedCands.filter(c=>c.job_id===j.id);
                 if(!jcands.length) return null;
+                const jTotalVac=(Number(j.vacancies)||0) + positions.filter(p=>p.job_id===j.id).reduce((sum,p)=>sum+(Number(p.required_count)||0),0);
                 return <div key={j.id} style={{...card,marginBottom:20}}>
                   <div style={{padding:"14px 18px",borderBottom:"1px solid #F3F4F6",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                     <div><span style={{fontWeight:700,fontSize:14}}>{j.client}</span><span style={{fontSize:12,color:"#6B7280",marginLeft:10}}>{j.ref} · {j.position}</span></div>
-                    <div style={{fontSize:12,color:"#6B7280"}}>{jcands.length} candidate(s) · Vacancies: {j.vacancies}</div>
+                    <div style={{fontSize:12,color:"#6B7280"}}>{jcands.length} candidate(s) · Vacancies: {jTotalVac}</div>
                   </div>
                   <div style={{overflowX:"auto",padding:"14px 18px"}}>
                     <div style={{display:"flex",gap:10,minWidth:STAGES.filter(s=>jcands.some(c=>c.stage===s.id)).length*160||400}}>
