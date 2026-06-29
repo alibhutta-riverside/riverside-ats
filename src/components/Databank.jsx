@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
 import { supabase } from "../lib/supabase";
 import { EMPTY_CAND, uid, fmtDate, today, COUNTRIES, sanitizeForDb } from "../lib/constants";
 
@@ -81,6 +82,162 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     if (url) setCf(f=>({...f, cv_url:url}));
     setUploading(false);
   };
+
+  // Fetches an image URL and converts it to a base64 data URL for embedding in the PDF
+  async function urlToDataUrl(url) {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  async function generateStandardCV(c) {
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageW = 210, pageH = 297, margin = 15;
+    let y = 0;
+
+    const navy = [11, 37, 69];
+    const gold = [212, 160, 23];
+    const gray = [107, 114, 128];
+    const lightGray = [243, 244, 246];
+
+    function ensureSpace(neededMm) {
+      if (y + neededMm > pageH - 18) {
+        doc.addPage();
+        y = 18;
+      }
+    }
+
+    function sectionTitle(label) {
+      ensureSpace(12);
+      y += 6;
+      doc.setFillColor(...navy);
+      doc.rect(margin, y - 4, 3, 5, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(...navy);
+      doc.text(label.toUpperCase(), margin + 6, y);
+      y += 3;
+      doc.setDrawColor(...lightGray);
+      doc.line(margin, y, pageW - margin, y);
+      y += 6;
+    }
+
+    function fieldRow(pairs) {
+      for (let i = 0; i < pairs.length; i += 2) {
+        ensureSpace(8);
+        const colW = (pageW - margin * 2) / 2;
+        [pairs[i], pairs[i + 1]].forEach((pair, idx) => {
+          if (!pair) return;
+          const x = margin + idx * colW;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(...gray);
+          doc.text(pair[0].toUpperCase(), x, y);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          doc.setTextColor(30, 30, 30);
+          doc.text(String(pair[1] || "—"), x, y + 5);
+        });
+        y += 11;
+      }
+    }
+
+    function paragraph(text) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(40, 40, 40);
+      const lines = doc.splitTextToSize(text || "—", pageW - margin * 2);
+      lines.forEach((line) => { ensureSpace(6); doc.text(line, margin, y); y += 5.5; });
+      y += 2;
+    }
+
+    doc.setFillColor(...navy);
+    doc.rect(0, 0, pageW, 38, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...gold);
+    doc.text("RIVERSIDE ENTERPRISES RECRUITMENT CONSULTANTS", margin, 10);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(220, 220, 220);
+    doc.text("Government Licensed Overseas Employment Promoter \u00b7 Lahore, Pakistan", margin, 14.5);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(255, 255, 255);
+    doc.text(c.name || "Candidate", margin, 27);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(...gold);
+    doc.text((c.trade || "Position not specified").toUpperCase(), margin, 33.5);
+
+    const photoW = 26, photoH = 30, photoX = pageW - margin - photoW, photoY = 4;
+    doc.setFillColor(255, 255, 255);
+    doc.rect(photoX, photoY, photoW, photoH, "F");
+    if (c.photo_url) {
+      const dataUrl = await urlToDataUrl(c.photo_url);
+      if (dataUrl) {
+        try { doc.addImage(dataUrl, "JPEG", photoX, photoY, photoW, photoH); } catch { /* unsupported format, skip silently */ }
+      }
+    }
+
+    y = 46;
+
+    sectionTitle("Personal Information");
+    fieldRow([
+      ["Father's Name", c.father_name], ["Date of Birth", c.date_of_birth ? fmtDate(c.date_of_birth) : null],
+      ["Nationality", c.nationality], ["Marital Status", c.marital_status],
+      ["Passport No.", c.passport], ["Passport Expiry", c.passport_expiry ? fmtDate(c.passport_expiry) : null],
+      ["CNIC", c.cnic], ["Phone / WhatsApp", c.phone],
+    ]);
+
+    if (c.has_gcc_experience) {
+      sectionTitle("Gulf / GCC Work Experience");
+      fieldRow([
+        ["Countries Worked In", c.gcc_countries], ["Years of GCC Experience", c.gcc_experience_years],
+      ]);
+    }
+
+    sectionTitle("Work Experience");
+    paragraph(c.work_history || `${c.experience ? c.experience + " years" : "Experience"} as ${c.trade || "tradesperson"}.`);
+
+    sectionTitle("Education & Qualifications");
+    paragraph(c.education);
+
+    sectionTitle("Certifications & Licenses");
+    fieldRow([
+      ["Trade Test (Takamol)", c.trade_test_status], ["Driving License", c.driving_license_type || "Not applicable"],
+      ["License Country", c.driving_license_country], ["License Status", c.driving_license_status],
+    ]);
+
+    sectionTitle("Deployment Readiness");
+    fieldRow([
+      ["Medical (GAMCA)", c.medical_status], ["Passport Validity", c.passport_expiry ? fmtDate(c.passport_expiry) : "—"],
+    ]);
+
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let p = 1; p <= pageCount; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(...lightGray);
+      doc.line(margin, pageH - 14, pageW - margin, pageH - 14);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(...gray);
+      doc.text("Riverside Enterprises Recruitment Consultants, Lahore, Pakistan \u00b7 Govt. Licensed Overseas Employment Promoter", margin, pageH - 9);
+      doc.text(`Page ${p} of ${pageCount}`, pageW - margin, pageH - 9, { align: "right" });
+    }
+
+    doc.save(`CV_${(c.name || "candidate").replace(/\s+/g, "_")}_Riverside.pdf`);
+  }
 
   const openAdd = () => { setEditId(null); setCf(EMPTY_CAND); setModal(true); };
   const openEdit = (c) => { setEditId(c.id); setCf({...EMPTY_CAND, ...c}); setModal(true); };
@@ -240,6 +397,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                   <td style={S.td}>
                     <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                       <button style={btn({ padding:"4px 9px", fontSize:11, color:"#4338CA", borderColor:"#C7D2FE" })} onClick={()=>openView(c)}>View</button>
+                      <button style={btn({ padding:"4px 9px", fontSize:11, color:"#0B2545", borderColor:"#D4A017" })} onClick={()=>generateStandardCV(c)}>📑 CV</button>
                       {c.stage!=="deployed" ? (
                         <>
                           <select style={{ ...inp, width:"auto", padding:"4px 8px", fontSize:11 }} onChange={e=>{ if(e.target.value) assignToJob(c.id, e.target.value); e.target.value=""; }} defaultValue="">
@@ -287,7 +445,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 {[["Father's Name", viewCand.father_name], ["CNIC", viewCand.cnic], ["Phone", viewCand.phone], ["Email", viewCand.email],
                   ["Passport", viewCand.passport], ["Passport Expiry", viewCand.passport_expiry?fmtDate(viewCand.passport_expiry):"—"],
                   ["Nationality", viewCand.nationality], ["Education", viewCand.education],
-                  ["Date of Birth", viewCand.date_of_birth?fmtDate(viewCand.date_of_birth):"—"], ["Source", viewCand.source]].map(([k,v])=>(
+                  ["Date of Birth", viewCand.date_of_birth?fmtDate(viewCand.date_of_birth):"—"], ["Marital Status", viewCand.marital_status], ["Source", viewCand.source]].map(([k,v])=>(
                   <div key={k} style={{ background:"#F9FAFB", borderRadius:8, padding:"9px 11px" }}>
                     <div style={{ fontSize:11, color:"#9CA3AF", textTransform:"uppercase" }}>{k}</div>
                     <div style={{ fontSize:13, fontWeight:600, wordBreak:"break-word" }}>{v || "—"}</div>
@@ -319,13 +477,16 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 </div>
               )}
 
-              <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+              <div style={{ display:"flex", gap:8, marginBottom:10 }}>
                 {viewCand.cv_url ? (
-                  <a href={viewCand.cv_url} target="_blank" rel="noreferrer" style={{ ...btn({ background:"#EEF2FF", color:"#4338CA", borderColor:"#C7D2FE", textAlign:"center", flex:1 }), textDecoration:"none", display:"inline-block" }}>📄 View CV</a>
+                  <a href={viewCand.cv_url} target="_blank" rel="noreferrer" style={{ ...btn({ background:"#EEF2FF", color:"#4338CA", borderColor:"#C7D2FE", textAlign:"center", flex:1 }), textDecoration:"none", display:"inline-block" }}>📄 View Original CV</a>
                 ) : (
                   <div style={{ flex:1, textAlign:"center", padding:"8px 14px", fontSize:13, color:"#9CA3AF", border:"1px dashed #E5E7EB", borderRadius:8 }}>No CV uploaded</div>
                 )}
                 {viewCand.phone && <a href={`tel:${viewCand.phone}`} style={{ ...btn({ color:"#3B82F6", borderColor:"#BFDBFE", textAlign:"center", flex:1 }), textDecoration:"none", display:"inline-block" }}>📞 Call</a>}
+              </div>
+              <div style={{ marginBottom:18 }}>
+                <button onClick={()=>generateStandardCV(viewCand)} style={{ ...btn({ background:"#0B2545", color:"#fff", border:"none", width:"100%" }) }}>📑 Generate Standard CV (PDF)</button>
               </div>
 
               <div style={{ display:"flex", gap:10, justifyContent:"flex-end", paddingTop:14, borderTop:"1px solid #F3F4F6" }}>
@@ -372,6 +533,15 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 <FR label="Passport No."><input style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
                 <FR label="Passport Expiry"><input style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
                 <FR label="Source"><input style={inp} value={cf.source} onChange={e=>setCf(f=>({...f,source:e.target.value}))} placeholder="Walk-in, referral, agent…" /></FR>
+                <FR label="Marital Status">
+                  <select style={inp} value={cf.marital_status||""} onChange={e=>setCf(f=>({...f,marital_status:e.target.value}))}>
+                    <option value="">— Not specified —</option>
+                    <option value="Single">Single</option>
+                    <option value="Married">Married</option>
+                    <option value="Divorced">Divorced</option>
+                    <option value="Widowed">Widowed</option>
+                  </select>
+                </FR>
               </div>
 
               <div style={{ background:"#ECFDF5", border:"1px solid #A7F3D0", borderRadius:10, padding:"14px 16px", marginTop:14, marginBottom:14 }}>
@@ -431,6 +601,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                   </div>
                 </FR>
               </div>
+              <FR label="Work History (shown on Standard CV — e.g. 'XYZ Construction, Riyadh — Site Electrician, 2021-2023')" span><textarea style={{ ...inp, minHeight:70, resize:"vertical" }} value={cf.work_history||""} onChange={e=>setCf(f=>({...f,work_history:e.target.value}))} placeholder="Brief work history narrative — employer, role, duration" /></FR>
               <FR label="Notes" span><textarea style={{ ...inp, minHeight:60, resize:"vertical" }} value={cf.databank_notes} onChange={e=>setCf(f=>({...f,databank_notes:e.target.value}))} /></FR>
 
               <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:16, paddingTop:14, borderTop:"1px solid #F3F4F6" }}>
