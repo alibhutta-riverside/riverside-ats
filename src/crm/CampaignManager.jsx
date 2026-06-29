@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const TYPES = [
@@ -12,6 +12,7 @@ const EMPTY_FORM = {
   name: '', campaign_type: 'informational', channel: 'email', subject: '', body_html: '',
   target_mode: 'type', target_client_type: 'all', target_sector: '',
   target_list_id: '', target_client_ids: [], scheduled_at: '',
+  cc_senior_management: true, attachment_url: '', attachment_name: '',
 };
 
 export default function CampaignManager({ currentUser }) {
@@ -22,6 +23,10 @@ export default function CampaignManager({ currentUser }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [waLinks, setWaLinks] = useState(null); // generated whatsapp links for the active campaign
   const [generating, setGenerating] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [sending, setSending] = useState(false);
+  const attachmentInputRef = useRef(null);
+  const bodyRef = useRef(null);
 
   useEffect(() => { load(); loadLists(); loadClients(); }, []);
 
@@ -76,13 +81,59 @@ export default function CampaignManager({ currentUser }) {
 
   async function saveCampaign(status) {
     if (!form.name.trim()) { alert('Campaign name is required'); return; }
-    const { error } = await supabase.from('campaigns').insert({
+    const { data, error } = await supabase.from('campaigns').insert({
       ...form, status, created_by: currentUser.id,
       scheduled_at: form.scheduled_at || new Date().toISOString(),
-    });
+    }).select().single();
     if (error) { alert(error.message); return; }
     setForm(EMPTY_FORM);
     setWaLinks(null);
+    load();
+    return data;
+  }
+
+  async function handleAttachmentUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingAttachment(true);
+    const ext = file.name.split('.').pop();
+    const path = `${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+    const { error } = await supabase.storage.from('campaign-attachments').upload(path, file);
+    setUploadingAttachment(false);
+    if (error) { alert('Upload failed: ' + error.message); return; }
+    const { data } = supabase.storage.from('campaign-attachments').getPublicUrl(path);
+    setForm((f) => ({ ...f, attachment_url: data.publicUrl, attachment_name: file.name }));
+  }
+
+  // Wraps the selected text in the textarea with formatting markup.
+  // Email uses real HTML tags; WhatsApp uses its own markdown-style markup.
+  function applyFormat(type) {
+    const el = bodyRef.current;
+    if (!el) return;
+    const { selectionStart: start, selectionEnd: end, value } = el;
+    const selected = value.slice(start, end) || (type === 'link' ? 'link text' : 'text');
+    let wrapped;
+    if (form.channel === 'whatsapp') {
+      wrapped = type === 'bold' ? `*${selected}*` : type === 'italic' ? `_${selected}_` : type === 'strike' ? `~${selected}~` : selected;
+    } else {
+      wrapped = type === 'bold' ? `<b>${selected}</b>` : type === 'italic' ? `<i>${selected}</i>` : type === 'link' ? `<a href="https://">${selected}</a>` : selected;
+    }
+    const newValue = value.slice(0, start) + wrapped + value.slice(end);
+    setForm((f) => ({ ...f, body_html: newValue }));
+    setTimeout(() => { el.focus(); el.selectionStart = start; el.selectionEnd = start + wrapped.length; }, 0);
+  }
+
+  async function sendNow() {
+    if (!form.body_html.trim()) { alert('Write your message first.'); return; }
+    if (!window.confirm('Send this email campaign right now to all matching recipients?')) return;
+    setSending(true);
+    const saved = await saveCampaign('draft');
+    if (!saved) { setSending(false); return; }
+    const { data, error } = await supabase.functions.invoke('send-campaign', { body: { campaign_id: saved.id } });
+    setSending(false);
+    if (error) { alert('Send failed: ' + error.message); return; }
+    if (data?.error) { alert(data.error); return; }
+    alert(`Sent to ${data.sentCount} of ${data.totalRecipients} recipients.${data.ccList?.length ? ` CC'd: ${data.ccList.join(', ')}` : ''}`);
     load();
   }
 
@@ -183,7 +234,19 @@ export default function CampaignManager({ currentUser }) {
           <input style={inp} placeholder="Email subject" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
         ) : null}
 
+        <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+          <button type="button" onClick={() => applyFormat('bold')} style={{ width: 30, height: 30, border: "1px solid #E5E7EB", borderRadius: 6, background: "#fff", cursor: "pointer", fontWeight: 700, fontSize: 13 }}>B</button>
+          <button type="button" onClick={() => applyFormat('italic')} style={{ width: 30, height: 30, border: "1px solid #E5E7EB", borderRadius: 6, background: "#fff", cursor: "pointer", fontStyle: "italic", fontSize: 13 }}>I</button>
+          {form.channel === 'whatsapp' ? (
+            <button type="button" onClick={() => applyFormat('strike')} style={{ width: 30, height: 30, border: "1px solid #E5E7EB", borderRadius: 6, background: "#fff", cursor: "pointer", textDecoration: "line-through", fontSize: 13 }}>S</button>
+          ) : (
+            <button type="button" onClick={() => applyFormat('link')} style={{ width: 30, height: 30, border: "1px solid #E5E7EB", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13 }}>🔗</button>
+          )}
+          <span style={{ fontSize: 10, color: "#9CA3AF", alignSelf: "center", marginLeft: 4 }}>Select text, then click a button to format it</span>
+        </div>
+
         <textarea
+          ref={bodyRef}
           style={{ ...inp, minHeight: 100, resize: "vertical" }}
           placeholder={form.channel === 'whatsapp' ? "WhatsApp message. Use {{contact_person}} and {{company_name}} for personalization." : "Email body (HTML ok). Use {{contact_person}} and {{company_name}} for personalization."}
           value={form.body_html}
@@ -192,6 +255,23 @@ export default function CampaignManager({ currentUser }) {
 
         {form.channel === 'email' && (
           <>
+            <input ref={attachmentInputRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleAttachmentUpload} />
+            {form.attachment_url ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 12 }}>
+                <span style={{ color: "#065F46" }}>📎 {form.attachment_name}</span>
+                <button onClick={() => setForm((f) => ({ ...f, attachment_url: '', attachment_name: '' }))} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Remove</button>
+              </div>
+            ) : (
+              <button onClick={() => attachmentInputRef.current.click()} disabled={uploadingAttachment} style={{ ...inp, textAlign: "left", cursor: "pointer", color: "#6B7280", background: "#fff" }}>
+                {uploadingAttachment ? "Uploading…" : "📎 Attach image or PDF (optional, max 10MB)"}
+              </button>
+            )}
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#374151", marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.cc_senior_management} onChange={(e) => setForm({ ...form, cc_senior_management: e.target.checked })} />
+              CC senior management on this email (keeps the team in the loop)
+            </label>
+
             <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Send date/time (leave blank to send ASAP)</div>
             <input type="datetime-local" style={inp} value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
           </>
@@ -207,7 +287,9 @@ export default function CampaignManager({ currentUser }) {
         ) : (
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button onClick={() => saveCampaign('draft')} style={{ flex: 1, background: "#F3F4F6", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "#374151", cursor: "pointer" }}>Save draft</button>
-            <button onClick={() => saveCampaign('scheduled')} style={{ flex: 1, background: "#111827", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Schedule send</button>
+            <button onClick={sendNow} disabled={sending} style={{ flex: 1, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: sending ? 0.6 : 1 }}>
+              {sending ? "Sending…" : "📧 Send Now"}
+            </button>
           </div>
         )}
 
