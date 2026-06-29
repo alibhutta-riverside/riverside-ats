@@ -597,7 +597,7 @@ function AppInner() {
                         const isExp=passportExpiring.find(x=>x.id===c.id);
                         return <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
                           <td style={td}><Avatar url={c.photo_url} name={c.name}/></td>
-                          <td style={td}><div style={{fontWeight:600,color:"#111827"}}>{c.name}</div><div style={{fontSize:12,color:"#6B7280"}}>{c.trade}</div></td>
+                          <td style={td}><div style={{fontWeight:600,color:"#111827"}}>{c.name}</div><div style={{fontSize:12,color:"#6B7280"}}>{c.trade}</div>{c.status_note && <div style={{fontSize:10,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"2px 5px",marginTop:3,display:"inline-block"}}>⚠ {c.status_note}</div>}</td>
                           <td style={td}><div style={{fontFamily:"monospace",fontSize:12}}>{c.passport||"—"}</div><div style={{fontSize:11,color:isExp?"#EF4444":"#9CA3AF"}}>{fmtDate(c.passport_expiry)}</div></td>
                           <td style={td}><div style={{fontSize:12,fontWeight:500}}>{job?job.ref:"—"}</div><div style={{fontSize:11,color:"#6B7280"}}>{job?job.client:""}</div></td>
                           <td style={td}>
@@ -649,10 +649,13 @@ function AppInner() {
                             <span style={{marginLeft:"auto",background:"#F3F4F6",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:600}}>{sc.length}</span>
                           </div>
                           {sc.map(c=>(
-                            <div key={c.id} style={{background:"#fff",border:`1px solid ${s.color}30`,borderLeft:`3px solid ${s.color}`,borderRadius:8,padding:"9px 11px",marginBottom:7,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,.04)",display:"flex",gap:8,alignItems:"center"}}
+                            <div key={c.id} style={{background:"#fff",border:`1px solid ${s.color}30`,borderLeft:`3px solid ${s.color}`,borderRadius:8,padding:"9px 11px",marginBottom:7,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}
                               onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
-                              <Avatar url={c.photo_url} name={c.name} size={28}/>
-                              <div><div style={{fontWeight:600,fontSize:12,color:"#111827"}}>{c.name}</div><div style={{fontSize:11,color:"#6B7280"}}>{c.trade}</div></div>
+                              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                                <Avatar url={c.photo_url} name={c.name} size={28}/>
+                                <div><div style={{fontWeight:600,fontSize:12,color:"#111827"}}>{c.name}</div><div style={{fontSize:11,color:"#6B7280"}}>{c.trade}</div></div>
+                              </div>
+                              {c.status_note && <div style={{fontSize:10,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"3px 6px",marginTop:6}}>⚠ {c.status_note}</div>}
                             </div>
                           ))}
                         </div>;
@@ -821,6 +824,12 @@ function AppInner() {
                       <div style={{fontSize:12,fontWeight:600,wordBreak:"break-word"}}>{v||"—"}</div>
                     </div>
                   ))}
+                  {dc.status_note && (
+                    <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"9px 11px",gridColumn:"1/-1"}}>
+                      <div style={{fontSize:11,color:"#92400E",textTransform:"uppercase",marginBottom:2,fontWeight:600}}>⚠ Status Note</div>
+                      <div style={{fontSize:12,fontWeight:600,color:"#78350F",wordBreak:"break-word"}}>{dc.status_note}</div>
+                    </div>
+                  )}
                 </div>
               )}
               {dtab==="process"&&(
@@ -890,6 +899,9 @@ function AppInner() {
           <FR label="Passport No."><input key="passport" style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
           <FR label="Passport Expiry"><input key="passport_expiry" style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
           <FR label="Stage"><select key="stage" style={inp} value={cf.stage} onChange={e=>setCf(f=>({...f,stage:e.target.value}))}>{STAGES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></FR>
+          <FR label="Status Note (internal — e.g. passport renewal pending)" span>
+            <input style={{...inp,borderColor:"#FDE68A"}} value={cf.status_note||""} onChange={e=>setCf(f=>({...f,status_note:e.target.value}))} placeholder="e.g. Passport expired, renewal in process — expected next week" />
+          </FR>
           <FR label="Job Order"><select key="job_id" style={inp} value={cf.job_id||""} onChange={e=>setCf(f=>({...f,job_id:e.target.value||null}))}><option value="">— Unassigned —</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client}</option>)}</select></FR>
           <FR label="Offered Salary (SAR)">
             <input style={inp} type="number" value={cf.offered_salary||""} onChange={e=>setCf(f=>({...f,offered_salary:e.target.value}))}
