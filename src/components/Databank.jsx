@@ -83,6 +83,52 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     setUploading(false);
   };
 
+  // Default skill suggestions by trade — used to fill in "Key Skills" when the candidate
+  // record doesn't have explicit skills entered yet, so the CV never looks empty/incomplete.
+  const TRADE_SKILLS = {
+    electrician: "Wiring & circuit installation, panel boards, fault diagnosis, conduit work, blueprint reading, safety compliance",
+    welder: "MIG/TIG/Arc welding, blueprint reading, metal fabrication, pipe fitting, quality inspection, safety compliance",
+    plumber: "Pipe fitting, leak repair, fixture installation, blueprint reading, water system maintenance, safety compliance",
+    carpenter: "Framing, finish carpentry, blueprint reading, power tool operation, measurement precision, furniture assembly",
+    mechanic: "Engine diagnostics, preventive maintenance, hydraulic systems, troubleshooting, hand & power tools, safety compliance",
+    driver: "Defensive driving, route navigation, vehicle maintenance checks, load securing, traffic regulations, punctuality",
+    mason: "Bricklaying, concrete work, plastering, blueprint reading, measurement precision, structural finishing",
+    painter: "Surface preparation, spray & brush techniques, color matching, finishing work, safety compliance",
+    helper: "Manual handling, teamwork, following instructions, basic tool use, site safety awareness, physical stamina",
+    laborer: "Manual handling, teamwork, following instructions, basic tool use, site safety awareness, physical stamina",
+    chef: "Menu preparation, food safety (HACCP), kitchen management, inventory control, multitasking under pressure",
+    cook: "Food preparation, hygiene standards, kitchen equipment operation, portion control, teamwork",
+    waiter: "Customer service, order accuracy, table service standards, multitasking, point-of-sale systems",
+    housekeeping: "Cleaning standards, time management, attention to detail, inventory of supplies, guest service",
+    security: "Access control, surveillance monitoring, incident reporting, conflict de-escalation, physical fitness",
+    technician: "Equipment installation, diagnostics, preventive maintenance, troubleshooting, technical documentation",
+    operator: "Equipment operation, safety protocols, load handling, routine maintenance checks, precision control",
+    foreman: "Team supervision, work scheduling, quality control, site safety enforcement, client liaison",
+    manager: "Team leadership, resource planning, budget oversight, reporting, stakeholder communication",
+    fabricator: "Metal fabrication, cutting & shaping, blueprint reading, welding basics, quality inspection",
+  };
+
+  function getSkillsList(c) {
+    if (c.skills) return c.skills.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+    const tradeLower = (c.trade || "").toLowerCase();
+    const matchKey = Object.keys(TRADE_SKILLS).find(k => tradeLower.includes(k));
+    const fallback = matchKey ? TRADE_SKILLS[matchKey] : "Hardworking, reliable, quick learner, safety-conscious, team player";
+    return fallback.split(",").map(s => s.trim());
+  }
+
+  // Builds a short, punchy intro paragraph from whatever data is actually available —
+  // makes even a sparse profile read as a complete, professional summary.
+  function buildSummary(c) {
+    const expPart = c.experience ? `${c.experience}+ years of` : "Experienced";
+    const tradePart = c.trade || "skilled professional";
+    const gccPart = (c.has_gcc_experience || c.gcc_countries)
+      ? ` with proven hands-on experience in ${c.gcc_countries || "the Gulf region"}${c.gcc_experience_years ? ` (${c.gcc_experience_years} years)` : ""}`
+      : "";
+    const licensePart = c.driving_license_type ? ` Holds a valid ${c.driving_license_type} driving license.` : "";
+    const readyPart = c.medical_status === "Pass" || c.passport ? " Available for immediate deployment." : "";
+    return `${expPart} hands-on experience as a ${tradePart}${gccPart}. Known for reliability, strong work ethic, and safety-first approach on site.${licensePart}${readyPart}`;
+  }
+
   // Fetches an image URL and converts it to a base64 data URL for embedding in the PDF
   async function urlToDataUrl(url) {
     try {
@@ -108,6 +154,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     const gold = [212, 160, 23];
     const gray = [107, 114, 128];
     const lightGray = [243, 244, 246];
+    const navyTint = [235, 240, 247];
 
     function ensureSpace(neededMm) {
       if (y + neededMm > pageH - 18) {
@@ -151,17 +198,76 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
       }
     }
 
-    function paragraph(text) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(40, 40, 40);
-      const lines = doc.splitTextToSize(text || "—", pageW - margin * 2);
-      lines.forEach((line) => { ensureSpace(6); doc.text(line, margin, y); y += 5.5; });
+    function paragraph(text, opts = {}) {
+      doc.setFont("helvetica", opts.italic ? "italic" : "normal");
+      doc.setFontSize(opts.size || 10);
+      doc.setTextColor(...(opts.color || [40, 40, 40]));
+      const lines = doc.splitTextToSize(text || "—", pageW - margin * 2 - (opts.indent || 0));
+      lines.forEach((line) => { ensureSpace(6); doc.text(line, margin + (opts.indent || 0), y); y += (opts.lineHeight || 5.5); });
       y += 2;
     }
 
+    // Renders work history as proper bullet points. If a line contains " — " or " - ",
+    // the part before it is bolded (treated as the employer/role headline).
+    function bulletedHistory(text) {
+      const lines = (text || "").split("\n").map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) return false;
+      lines.forEach((line) => {
+        ensureSpace(7);
+        doc.setFillColor(...navy);
+        doc.circle(margin + 1.3, y - 1.7, 0.8, "F");
+        const splitMatch = line.split(/\s+[—-]\s+/);
+        if (splitMatch.length > 1) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          doc.setTextColor(20, 20, 20);
+          const headline = splitMatch[0];
+          doc.text(headline, margin + 5, y);
+          const headW = doc.getTextWidth(headline);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(60, 60, 60);
+          const rest = " — " + splitMatch.slice(1).join(" — ");
+          const restLines = doc.splitTextToSize(rest, pageW - margin * 2 - 5 - headW);
+          doc.text(restLines[0], margin + 5 + headW, y);
+          y += 5.5;
+          for (let i = 1; i < restLines.length; i++) { ensureSpace(6); doc.text(restLines[i], margin + 5, y); y += 5.5; }
+        } else {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          doc.setTextColor(40, 40, 40);
+          const wrapped = doc.splitTextToSize(line, pageW - margin * 2 - 5);
+          wrapped.forEach((l, i) => { if (i > 0) ensureSpace(6); doc.text(l, margin + 5, y); y += 5.5; });
+        }
+        y += 1.5;
+      });
+      return true;
+    }
+
+    // Renders skills as rounded "chip" pills that flow and wrap naturally
+    function skillChips(skills) {
+      ensureSpace(10);
+      let x = margin;
+      const chipH = 7, gapX = 3, gapY = 4;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      skills.forEach((skill) => {
+        const textW = doc.getTextWidth(skill);
+        const chipW = textW + 7;
+        if (x + chipW > pageW - margin) { x = margin; y += chipH + gapY; ensureSpace(chipH + gapY); }
+        doc.setFillColor(...navyTint);
+        doc.roundedRect(x, y - 5, chipW, chipH, 3, 3, "F");
+        doc.setTextColor(...navy);
+        doc.text(skill, x + 3.5, y - 0.3);
+        x += chipW + gapX;
+      });
+      y += chipH + 4;
+    }
+
+    // ── HEADER ──
     doc.setFillColor(...navy);
     doc.rect(0, 0, pageW, 38, "F");
+    doc.setFillColor(...gold);
+    doc.rect(0, 38, pageW, 1.2, "F");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
     doc.setTextColor(...gold);
@@ -172,11 +278,11 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     doc.text("Government Licensed Overseas Employment Promoter \u00b7 Lahore, Pakistan", margin, 14.5);
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
+    doc.setFontSize(19);
     doc.setTextColor(255, 255, 255);
     doc.text(c.name || "Candidate", margin, 27);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
+    doc.setFontSize(11.5);
     doc.setTextColor(...gold);
     doc.text((c.trade || "Position not specified").toUpperCase(), margin, 33.5);
 
@@ -190,7 +296,19 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
       }
     }
 
-    y = 46;
+    y = 47;
+
+    // ── PROFESSIONAL SUMMARY (auto-generated, catchy intro) ──
+    const summary = buildSummary(c);
+    ensureSpace(20);
+    const summaryLines = doc.splitTextToSize(summary, pageW - margin * 2 - 8);
+    const boxH = summaryLines.length * 5.2 + 6;
+    doc.setFillColor(...navyTint);
+    doc.rect(margin, y - 4, pageW - margin * 2, boxH, "F");
+    doc.setFillColor(...gold);
+    doc.rect(margin, y - 4, 1.5, boxH, "F");
+    paragraph(summary, { italic: true, color: navy, indent: 4 });
+    y += 4;
 
     sectionTitle("Personal Information");
     fieldRow([
@@ -208,12 +326,13 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     }
 
     sectionTitle("Work Experience");
-    paragraph(c.work_history || `${c.experience ? c.experience + " years" : "Experience"} as ${c.trade || "tradesperson"}.`);
-
-    if (c.skills) {
-      sectionTitle("Key Skills");
-      paragraph(c.skills);
+    const hadHistory = bulletedHistory(c.work_history);
+    if (!hadHistory) {
+      paragraph(`${c.experience ? c.experience + " years" : "Relevant experience"} working as a ${c.trade || "tradesperson"}, with consistent performance and reliability across assignments.`);
     }
+
+    sectionTitle("Key Skills");
+    skillChips(getSkillsList(c));
 
     sectionTitle("Education & Qualifications");
     paragraph(c.education);
@@ -643,7 +762,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                   </div>
                 </FR>
               </div>
-              <FR label="Work History (shown on Standard CV — e.g. 'XYZ Construction, Riyadh — Site Electrician, 2021-2023')" span><textarea style={{ ...inp, minHeight:70, resize:"vertical" }} value={cf.work_history||""} onChange={e=>setCf(f=>({...f,work_history:e.target.value}))} placeholder="Brief work history narrative — employer, role, duration" /></FR>
+              <FR label="Work History (one job per line: 'Employer, Location — Role, Years' for best results)" span><textarea style={{ ...inp, minHeight:80, resize:"vertical" }} value={cf.work_history||""} onChange={e=>setCf(f=>({...f,work_history:e.target.value}))} placeholder={"XYZ Construction, Riyadh — Site Electrician, 2021-2023\nABC Builders, Lahore — Electrician Helper, 2018-2021"} /></FR>
               <FR label="Key Skills" span><input style={inp} value={cf.skills||""} onChange={e=>setCf(f=>({...f,skills:e.target.value}))} placeholder="e.g. MIG/TIG welding, blueprint reading, forklift operation" /></FR>
               <FR label="Languages Spoken" span><input style={inp} value={cf.languages||""} onChange={e=>setCf(f=>({...f,languages:e.target.value}))} placeholder="e.g. Urdu (native), English (intermediate), Arabic (basic)" /></FR>
               <FR label="Additional Certifications (beyond trade test)" span><input style={inp} value={cf.additional_certifications||""} onChange={e=>setCf(f=>({...f,additional_certifications:e.target.value}))} placeholder="e.g. Forklift License, OSHA Safety Course, First Aid" /></FR>
