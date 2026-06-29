@@ -16,6 +16,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
   const [modal, setModal] = useState(false);
   const [editId, setEditId] = useState(null);
   const [viewId, setViewId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [cf, setCf] = useState(EMPTY_CAND);
   const [uploading, setUploading] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
@@ -145,9 +146,11 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     }
   }
 
-  async function generateStandardCV(c) {
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
+  // Renders one candidate's full CV onto an existing jsPDF doc, starting a fresh page first
+  // (except when explicitly told not to, for the very first candidate in a doc).
+  async function renderCandidateCV(doc, c, isFirst) {
     const pageW = 210, pageH = 297, margin = 15;
+    if (!isFirst) doc.addPage();
     let y = 0;
 
     const navy = [11, 37, 69];
@@ -207,8 +210,6 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
       y += 2;
     }
 
-    // Renders work history as proper bullet points. If a line contains " — " or " - ",
-    // the part before it is bolded (treated as the employer/role headline).
     function bulletedHistory(text) {
       const lines = (text || "").split("\n").map(l => l.trim()).filter(Boolean);
       if (lines.length === 0) return false;
@@ -243,7 +244,6 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
       return true;
     }
 
-    // Renders skills as rounded "chip" pills that flow and wrap naturally
     function skillChips(skills) {
       ensureSpace(10);
       let x = margin;
@@ -263,7 +263,6 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
       y += chipH + 4;
     }
 
-    // ── HEADER ──
     doc.setFillColor(...navy);
     doc.rect(0, 0, pageW, 38, "F");
     doc.setFillColor(...gold);
@@ -298,7 +297,6 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
 
     y = 47;
 
-    // ── PROFESSIONAL SUMMARY (auto-generated, catchy intro) ──
     const summary = buildSummary(c);
     ensureSpace(20);
     const summaryLines = doc.splitTextToSize(summary, pageW - margin * 2 - 8);
@@ -355,7 +353,11 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     fieldRow([
       ["Medical (GAMCA)", c.medical_status], ["Passport Validity", c.passport_expiry ? fmtDate(c.passport_expiry) : "—"],
     ]);
+  }
 
+  function stampFooters(doc) {
+    const pageW = 210, pageH = 297, margin = 15;
+    const gray = [107, 114, 128], lightGray = [243, 244, 246];
     const pageCount = doc.internal.getNumberOfPages();
     for (let p = 1; p <= pageCount; p++) {
       doc.setPage(p);
@@ -367,9 +369,50 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
       doc.text("Riverside Enterprises Recruitment Consultants, Lahore, Pakistan \u00b7 Govt. Licensed Overseas Employment Promoter", margin, pageH - 9);
       doc.text(`Page ${p} of ${pageCount}`, pageW - margin, pageH - 9, { align: "right" });
     }
+  }
 
+  // Download a single candidate's CV
+  async function generateStandardCV(c) {
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    await renderCandidateCV(doc, c, true);
+    stampFooters(doc);
     doc.save(`CV_${(c.name || "candidate").replace(/\s+/g, "_")}_Riverside.pdf`);
   }
+
+  // Share a single candidate's CV via the device's native share sheet (WhatsApp, email, etc.)
+  // Falls back to a normal download if the browser doesn't support sharing files.
+  async function shareCV(c) {
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    await renderCandidateCV(doc, c, true);
+    stampFooters(doc);
+    const blob = doc.output("blob");
+    const filename = `CV_${(c.name || "candidate").replace(/\s+/g, "_")}_Riverside.pdf`;
+    const file = new File([blob], filename, { type: "application/pdf" });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: `${c.name} - CV`, text: `CV for ${c.name} (${c.trade}) - Riverside Enterprises` });
+        return;
+      } catch {
+        // user cancelled the share sheet, or it failed — fall through to download
+      }
+    }
+    doc.save(filename);
+    alert("Your browser doesn't support direct sharing, so the CV was downloaded instead — attach it manually to WhatsApp or email.");
+  }
+
+  // Combine multiple candidates' CVs into a single multi-page PDF — one file to send to the client
+  async function generateCombinedCV(candidateList) {
+    if (candidateList.length === 0) { alert("Select at least one candidate first."); return; }
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    for (let i = 0; i < candidateList.length; i++) {
+      await renderCandidateCV(doc, candidateList[i], i === 0);
+    }
+    stampFooters(doc);
+    doc.save(`Riverside_CVs_${candidateList.length}_Candidates_${today().replace(/\//g, "-")}.pdf`);
+  }
+
+
 
   const openAdd = () => { setEditId(null); setCf(EMPTY_CAND); setModal(true); };
   const openEdit = (c) => { setEditId(c.id); setCf({...EMPTY_CAND, ...c}); setModal(true); };
@@ -478,6 +521,11 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
           {deployedCands.length>0 && <button style={btn({fontSize:12})} onClick={()=>setShowDeployed(!showDeployed)}>{showDeployed?"Hide":"Show"} Deployed ({deployedCands.length})</button>}
           <button style={btn({fontSize:12})} onClick={exportDatabank} disabled={!visible.length}>📊 Export to Excel</button>
           <button style={btn()} onClick={()=>setBulkMode(!bulkMode)}>📋 Bulk Import</button>
+          {selectedIds.size > 0 && (
+            <button style={btn({fontSize:12, background:"#0B2545", color:"#fff", border:"none"})} onClick={()=>generateCombinedCV(visible.filter(c=>selectedIds.has(c.id)))}>
+              📑 Export {selectedIds.size} Selected CV{selectedIds.size>1?"s":""} (Combined PDF)
+            </button>
+          )}
           <button style={pri} onClick={openAdd}>+ Add Candidate</button>
         </div>
       </div>
@@ -499,11 +547,16 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
         <div style={{ overflowX:"auto" }}>
           <table style={{ width:"100%", borderCollapse:"collapse" }}>
             <thead><tr>
-              {["Photo","Name & Trade","CNIC","Passport","Phone","GCC Exp.","License","Source","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}
+              {["", "Photo","Name & Trade","CNIC","Passport","Phone","GCC Exp.","License","Source","Actions"].map((h,i)=><th key={i} style={S.th}>{h}</th>)}
             </tr></thead>
             <tbody>
               {visible.length ? visible.map(c=>(
                 <tr key={c.id}>
+                  <td style={S.td}>
+                    <input type="checkbox" checked={selectedIds.has(c.id)} onChange={()=>{
+                      setSelectedIds(prev => { const next = new Set(prev); next.has(c.id) ? next.delete(c.id) : next.add(c.id); return next; });
+                    }} />
+                  </td>
                   <td style={S.td} onClick={()=>openView(c)} title="Click to view full profile" >
                     {c.photo_url ? <img src={c.photo_url} alt={c.name} style={{ width:36, height:36, borderRadius:8, objectFit:"cover", cursor:"pointer" }} />
                       : <div style={{ width:36, height:36, borderRadius:8, background:"#F3F4F6", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, color:"#9CA3AF", cursor:"pointer" }}>{c.name.charAt(0)}</div>}
@@ -548,7 +601,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                     </div>
                   </td>
                 </tr>
-              )) : <tr><td colSpan={9} style={{ textAlign:"center", padding:40, color:"#9CA3AF" }}>No candidates in databank yet. Add or bulk import to get started.</td></tr>}
+              )) : <tr><td colSpan={10} style={{ textAlign:"center", padding:40, color:"#9CA3AF" }}>No candidates in databank yet. Add or bulk import to get started.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -646,8 +699,9 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 )}
                 {viewCand.phone && <a href={`tel:${viewCand.phone}`} style={{ ...btn({ color:"#3B82F6", borderColor:"#BFDBFE", textAlign:"center", flex:1 }), textDecoration:"none", display:"inline-block" }}>📞 Call</a>}
               </div>
-              <div style={{ marginBottom:18 }}>
-                <button onClick={()=>generateStandardCV(viewCand)} style={{ ...btn({ background:"#0B2545", color:"#fff", border:"none", width:"100%" }) }}>📑 Generate Standard CV (PDF)</button>
+              <div style={{ display:"flex", gap:8, marginBottom:18 }}>
+                <button onClick={()=>generateStandardCV(viewCand)} style={{ ...btn({ background:"#0B2545", color:"#fff", border:"none", flex:1 }) }}>📑 Generate Standard CV</button>
+                <button onClick={()=>shareCV(viewCand)} style={{ ...btn({ background:"#10B981", color:"#fff", border:"none", flex:1 }) }}>📤 Share CV</button>
               </div>
 
               <div style={{ display:"flex", gap:10, justifyContent:"flex-end", paddingTop:14, borderTop:"1px solid #F3F4F6" }}>
