@@ -72,20 +72,45 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
     const list = pendingItems ?? [];
     setProgress({ done: 0, total: list.length });
 
+    // Anthropic's default rate limit for new accounts is low (e.g. 5 requests/minute).
+    // Space requests out to stay safely under that, and back off further if we still get rate-limited.
+    let delayMs = 13000; // ~4.6/minute, safely under a 5/minute cap
+
     for (let i = 0; i < list.length; i++) {
-      try {
-        await supabase.functions.invoke("extract-cv", { body: { item_id: list[i].id } });
-      } catch {
-        // logged server-side on the item row already; continue with the rest
+      let attempt = 0;
+      let success = false;
+      while (!success && attempt < 6) {
+        attempt++;
+        try {
+          const { data, error } = await supabase.functions.invoke("extract-cv", { body: { item_id: list[i].id } });
+          if (!error && !data?.retryable) {
+            success = true;
+          } else if (data?.retryable || error?.message?.includes("429")) {
+            // Rate limited — wait longer than usual before retrying this same file
+            await new Promise(r => setTimeout(r, 65000));
+          } else {
+            success = true; // a real (non-rate-limit) error was already recorded on the item row — move on
+          }
+        } catch {
+          await new Promise(r => setTimeout(r, 65000));
+        }
       }
       setProgress({ done: i + 1, total: list.length });
       await loadItems(activeBatch.id); // live-refresh so user sees results streaming in
+      if (i < list.length - 1) await new Promise(r => setTimeout(r, delayMs));
     }
 
     await supabase.from("cv_import_batches").update({ status: "review", processed_count: list.length }).eq("id", activeBatch.id);
     setProcessing(false);
     loadBatches();
     loadItems(activeBatch.id);
+  }
+
+  async function retryFailedItems() {
+    if (!activeBatch) return;
+    await supabase.from("cv_import_items").update({ extraction_status: "pending", review_reason: null }).eq("batch_id", activeBatch.id).eq("extraction_status", "error");
+    await loadItems(activeBatch.id);
+    processBatch();
   }
 
   function toggleSelect(id) {
@@ -220,11 +245,21 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
                 {processing ? `Processing… (${progress.done}/${progress.total})` : `🤖 Process ${pendingCount} CV${pendingCount !== 1 ? "s" : ""} with AI`}
               </button>
             )}
+            {items.some(i => i.extraction_status === "error") && (
+              <button style={btn({ background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A" })} onClick={retryFailedItems} disabled={processing}>
+                🔁 Retry Failed Items
+              </button>
+            )}
             <span style={{ fontSize: 12, color: "#059669", fontWeight: 600 }}>✓ {readyCount} ready</span>
             <span style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>⚠ {reviewCount} need review</span>
             <span style={{ fontSize: 12, color: "#6B7280" }}>{otherCount} other</span>
             {pendingCount > 0 && <span style={{ fontSize: 12, color: "#9CA3AF" }}>{pendingCount} pending</span>}
           </div>
+          {processing && (
+            <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 10 }}>
+              Processing carefully to stay within your account's request rate limit — roughly 1 CV every 13 seconds. This is normal and speeds up automatically as your account's limits increase with usage. You can leave this tab open and check back later.
+            </div>
+          )}
 
           {(readyCount > 0 || reviewCount > 0) && (
             <button style={btn({ background: "#0B2545", color: "#fff", border: "none", marginBottom: 16 })} onClick={addSelectedToDatabank} disabled={adding}>
