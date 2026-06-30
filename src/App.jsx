@@ -1379,9 +1379,13 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
         <button style={{...pri, marginBottom:18}} onClick={()=>{setShowCreateForm(true);setCreatedMessage("")}}>➕ Add New Staff Member</button>
       )}
 
+      <div style={{ fontSize:11, color:"#6366F1", marginBottom:6, fontWeight:600 }}>
+        ← Swipe left/right to see all columns, including Actions (password reset, delete) →
+      </div>
       <div style={S.card}>
-        <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <thead><tr>{["Name","Email","Role","ATS Access","CRM Access","CRM Sections","Client Access (Managers only)","Actions"].map(h=><th key={h} style={S.th}>{h}</th>)}</tr></thead>
+        <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+        <table style={{ width:"100%", minWidth:900, borderCollapse:"collapse" }}>
+          <thead><tr>{["Name","Email","Role","ATS Access","CRM Access","CRM Sections","Client Access (Managers only)","Actions"].map(h=><th key={h} style={{...S.th, position: h==="Actions" ? "sticky" : "static", right: h==="Actions" ? 0 : "auto", background: h==="Actions" ? "#F9FAFB" : S.th.background, boxShadow: h==="Actions" ? "-2px 0 4px rgba(0,0,0,0.06)" : "none"}}>{h}</th>)}</tr></thead>
           <tbody>
             {staff.map(s=>(
               <tr key={s.id}>
@@ -1418,8 +1422,8 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
                     </div>
                   ) : <span style={{ fontSize:12, color:"#9CA3AF" }}>{s.role==="admin"?"All clients":"N/A"}</span>}
                 </td>
-                <td style={S.td}>
-                  <div style={{ display:"flex", gap:6 }}>
+                <td style={{...S.td, position:"sticky", right:0, background:"#fff", boxShadow:"-2px 0 4px rgba(0,0,0,0.06)"}}>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6, minWidth:130 }}>
                     <button style={btn({padding:"4px 10px",fontSize:11})} onClick={()=>editStaffEmail(s.id, s.email)}>Edit Email</button>
                     <button style={btn({padding:"4px 10px",fontSize:11,color:"#6366F1",borderColor:"#C7D2FE"})} onClick={()=>changeStaffPassword(s.id, s.full_name)}>🔑 Change Password</button>
                     <button style={btn({padding:"4px 10px",fontSize:11,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>deleteStaff(s.id, s.full_name)}>Delete</button>
@@ -1429,6 +1433,7 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
