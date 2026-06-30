@@ -721,7 +721,7 @@ function AppInner() {
                 const dep=jcands.filter(c=>c.stage==="deployed").length;
                 const totalVac=(Number(j.vacancies)||0) + positions.filter(p=>p.job_id===j.id).reduce((sum,p)=>sum+(Number(p.required_count)||0),0);
                 const pct=totalVac?Math.min(100,Math.round(dep/totalVac*100)):0;
-                const statusColor=j.status==="Open"?"#10B981":j.status==="Filled"?"#6366F1":"#6B7280";
+                const statusColor=j.status==="Open"?"#10B981":j.status==="Completed"?"#6366F1":"#6B7280";
                 const allPositions=[
                   { position_name:j.position, required_count:j.vacancies, salary:j.salary },
                   ...positions.filter(p=>p.job_id===j.id)
@@ -1011,7 +1011,7 @@ function AppInner() {
           <FR label="Vacancies"><input key="vacancies" style={inp} type="number" min="1" value={jf.vacancies} onChange={e=>setJf(f=>({...f,vacancies:e.target.value}))} /></FR>
           <FR label="Salary (SAR)"><input key="salary" style={inp} value={jf.salary} onChange={e=>setJf(f=>({...f,salary:e.target.value}))} /></FR>
           <FR label="Deadline"><input key="deadline" style={inp} type="date" value={jf.deadline} onChange={e=>setJf(f=>({...f,deadline:e.target.value}))} /></FR>
-          <FR label="Status"><select key="status" style={inp} value={jf.status} onChange={e=>setJf(f=>({...f,status:e.target.value}))}><option>Open</option><option>Filled</option><option>Closed</option></select></FR>
+          <FR label="Status"><select key="status" style={inp} value={jf.status} onChange={e=>setJf(f=>({...f,status:e.target.value}))}><option>Open</option><option>Completed</option><option>Closed</option></select></FR>
           <FR label="Contact Person"><input key="contact" style={inp} value={jf.contact} onChange={e=>setJf(f=>({...f,contact:e.target.value}))} /></FR>
           <FR label="Notes" span><textarea key="notes" style={{...inp,minHeight:55,resize:"vertical"}} value={jf.notes} onChange={e=>setJf(f=>({...f,notes:e.target.value}))} /></FR>
         </div>
