@@ -25,6 +25,7 @@ export default function CampaignManager({ currentUser }) {
   const [generating, setGenerating] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [sending, setSending] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState(null);
   const attachmentInputRef = useRef(null);
   const bodyRef = useRef(null);
 
@@ -121,6 +122,75 @@ export default function CampaignManager({ currentUser }) {
     const newValue = value.slice(0, start) + wrapped + value.slice(end);
     setForm((f) => ({ ...f, body_html: newValue }));
     setTimeout(() => { el.focus(); el.selectionStart = start; el.selectionEnd = start + wrapped.length; }, 0);
+  }
+
+  // Mirrors the formatting logic in the send-campaign Edge Function exactly,
+  // so the preview shown here matches what the client will actually receive.
+  function formatBodyAsHtml(rawBody) {
+    const lines = (rawBody || '').split('\n');
+    let html = '';
+    let inList = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (trimmed.includes('•')) {
+        const segments = trimmed.split('•').map(s => s.trim()).filter(Boolean);
+        const intro = !trimmed.startsWith('•') ? segments.shift() : null;
+        if (inList) { html += '</ul>'; inList = false; }
+        if (intro) html += `<p style="margin:0 0 6px 0;font-weight:bold;">${intro}</p>`;
+        if (segments.length > 0) {
+          html += '<ul style="margin:8px 0;padding-left:20px;">';
+          segments.forEach(seg => { html += `<li style="margin-bottom:4px;">${seg}</li>`; });
+          html += '</ul>';
+        }
+        continue;
+      }
+
+      const isBullet = /^[•\-*]\s+/.test(trimmed);
+      if (isBullet) {
+        if (!inList) { html += '<ul style="margin:8px 0;padding-left:20px;">'; inList = true; }
+        html += `<li style="margin-bottom:4px;">${trimmed.replace(/^[•\-*]\s+/, '')}</li>`;
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += trimmed === '' ? '<br>' : `<p style="margin:0 0 10px 0;">${trimmed}</p>`;
+      }
+    }
+    if (inList) html += '</ul>';
+    return html;
+  }
+
+  function wrapInBrandedTemplate(bodyHtml) {
+    return `
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;background:#F4F6F8;">
+  <div style="background:#0B2545;padding:24px 28px;">
+    <div style="color:#D4A017;font-size:11px;font-weight:bold;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;">
+      Government Licensed &middot; Overseas Employment Promoters
+    </div>
+    <div style="color:#ffffff;font-size:20px;font-weight:bold;">Riverside Enterprises</div>
+    <div style="color:#9FB3C8;font-size:12px;margin-top:2px;">Recruitment Consultants &middot; Lahore, Pakistan</div>
+  </div>
+  <div style="background:#ffffff;padding:28px;color:#1F2937;font-size:14px;line-height:1.6;">
+    ${bodyHtml}
+  </div>
+  <div style="background:#0B2545;padding:16px 28px;text-align:center;">
+    <div style="color:#9FB3C8;font-size:11px;">
+      Riverside Enterprises Recruitment Consultants, Lahore, Pakistan<br>
+      This email was sent to you because of an existing business relationship with Riverside Enterprises.
+    </div>
+  </div>
+</div>`.trim();
+  }
+
+  function showPreview() {
+    if (!form.body_html.trim()) { alert('Write your message first.'); return; }
+    const sampleClient = { contact_person: 'John Smith', company_name: 'Example Company Ltd.' };
+    const personalized = form.body_html
+      .replace(/{{\s*contact_person\s*}}/gi, sampleClient.contact_person)
+      .replace(/{{\s*company_name\s*}}/gi, sampleClient.company_name);
+    const formatted = formatBodyAsHtml(personalized);
+    const html = form.channel === 'email' ? wrapInBrandedTemplate(formatted) : null;
+    setPreviewHtml(form.channel === 'email' ? html : personalized);
   }
 
   async function sendNow() {
@@ -280,6 +350,7 @@ export default function CampaignManager({ currentUser }) {
         {form.channel === 'whatsapp' ? (
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button onClick={() => saveCampaign('draft')} style={{ flex: 1, background: "#F3F4F6", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "#374151", cursor: "pointer" }}>Save draft</button>
+            <button onClick={showPreview} style={{ flex: 1, background: "#fff", border: "1px solid #6366F1", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "#6366F1", cursor: "pointer" }}>👁 Preview</button>
             <button onClick={generateWhatsAppLinks} disabled={generating} style={{ flex: 1, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: generating ? 0.6 : 1 }}>
               {generating ? "Generating…" : "💬 Generate WhatsApp Links"}
             </button>
@@ -287,9 +358,34 @@ export default function CampaignManager({ currentUser }) {
         ) : (
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button onClick={() => saveCampaign('draft')} style={{ flex: 1, background: "#F3F4F6", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "#374151", cursor: "pointer" }}>Save draft</button>
+            <button onClick={showPreview} style={{ flex: 1, background: "#fff", border: "1px solid #6366F1", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "#6366F1", cursor: "pointer" }}>👁 Preview</button>
             <button onClick={sendNow} disabled={sending} style={{ flex: 1, background: "#10B981", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: sending ? 0.6 : 1 }}>
               {sending ? "Sending…" : "📧 Send Now"}
             </button>
+          </div>
+        )}
+
+        {previewHtml !== null && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+            onClick={e => e.target === e.currentTarget && setPreviewHtml(null)}>
+            <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 680, maxHeight: "88vh", overflowY: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #F3F4F6", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>Preview — exactly what the client will see</div>
+                  <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>Sample personalization shown: "John Smith" / "Example Company Ltd."</div>
+                </div>
+                <button style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "4px 10px", cursor: "pointer", fontSize: 13 }} onClick={() => setPreviewHtml(null)}>✕</button>
+              </div>
+              <div style={{ padding: "20px" }}>
+                {form.channel === 'email' ? (
+                  <div style={{ border: "1px solid #E5E7EB", borderRadius: 10, overflow: "hidden" }}>
+                    <iframe title="Email preview" srcDoc={previewHtml} style={{ width: "100%", height: 500, border: "none" }} />
+                  </div>
+                ) : (
+                  <div style={{ background: "#DCF8C6", borderRadius: 10, padding: 16, fontSize: 14, whiteSpace: "pre-wrap", fontFamily: "inherit" }}>{previewHtml}</div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
