@@ -20,6 +20,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [cf, setCf] = useState(EMPTY_CAND);
   const [uploading, setUploading] = useState(false);
+  const [extractingAI, setExtractingAI] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const photoInputRef = useRef(null);
@@ -87,6 +88,25 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     const url = await uploadFile(file, "cvs");
     if (url) setCf(f=>({...f, cv_url:url}));
     setUploading(false);
+  };
+
+  // Lets staff get the same AI-extracted richness as bulk import, for a one-off manual entry.
+  // Requires the candidate to be saved first (so there's a real id to attach the extracted
+  // data to) — if editing an existing candidate this works immediately; if adding new, save
+  // once first (even with minimal info), then re-open and use this.
+  const handleAutoFillFromCV = async () => {
+    if (!cf.cv_url) { alert("Upload a CV file first."); return; }
+    if (!editId) { alert("Please save this candidate first (even with just name + CV), then reopen and click Auto-fill — this lets the AI attach extracted details to their saved record."); return; }
+    setExtractingAI(true);
+    const { data, error } = await supabase.functions.invoke("extract-cv-for-candidate", { body: { candidate_id: editId, cv_url: cf.cv_url } });
+    setExtractingAI(false);
+    if (error) { alert("AI extraction failed: " + error.message); return; }
+    if (data?.error) { alert(data.error); return; }
+    if (data?.skipped) { alert(data.reason || "This file type isn't supported for AI extraction."); return; }
+    // Re-fetch the now-enriched candidate record and refresh the open form with it
+    const { data: refreshed } = await supabase.from("candidates").select("*").eq("id", editId).single();
+    if (refreshed) setCf(f => ({ ...f, ...refreshed }));
+    alert(`Auto-fill complete. ${data?.fieldsFilled?.length ? `Filled in: ${data.fieldsFilled.join(", ")}` : "No empty fields needed filling."}`);
   };
 
   // Default skill suggestions by trade — used to fill in "Key Skills" when the candidate
@@ -824,7 +844,13 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                       {cf.cv_url ? "Replace CV" : "Upload CV File"}
                     </button>
                     {cf.cv_url && <a href={cf.cv_url} target="_blank" rel="noreferrer" style={{ ...btn({ fontSize:12, color:"#4338CA", borderColor:"#C7D2FE" }), textDecoration:"none", display:"inline-flex", alignItems:"center" }}>View</a>}
+                    {cf.cv_url && (
+                      <button style={btn({ fontSize:12, background:"#0B2545", color:"#fff", border:"none" })} onClick={handleAutoFillFromCV} disabled={extractingAI}>
+                        {extractingAI ? "Reading CV…" : "🤖 Auto-fill from CV"}
+                      </button>
+                    )}
                   </div>
+                  {cf.cv_url && <div style={{ fontSize:10, color:"#9CA3AF", marginTop:4 }}>Uses AI to read this CV and fill in empty fields below (work history, skills, GCC experience, etc.) — same as Bulk Import. Only saved candidates can use this.</div>}
                 </FR>
               </div>
               <FR label="Work History (one job per line: 'Employer, Location — Role, Years' for best results)" span><textarea style={{ ...inp, minHeight:80, resize:"vertical" }} value={cf.work_history||""} onChange={e=>setCf(f=>({...f,work_history:e.target.value}))} placeholder={"XYZ Construction, Riyadh — Site Electrician, 2021-2023\nABC Builders, Lahore — Electrician Helper, 2018-2021"} /></FR>

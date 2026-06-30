@@ -54,14 +54,14 @@ export default function ApplyForm() {
 
     const { data: urlData } = supabase.storage.from("cvs").getPublicUrl(path);
 
-    const { error: insertError } = await supabase.from("candidates").insert([{
+    const { data: insertedCandidate, error: insertError } = await supabase.from("candidates").insert([{
       ...form,
       cv_url: urlData.publicUrl,
       stage: "databank",
       job_id: null,
       source: "Public Application",
       agent_id: referralAgent?.id || null,
-    }]);
+    }]).select().single();
 
     setSubmitting(false);
 
@@ -71,6 +71,15 @@ export default function ApplyForm() {
     }
 
     setDone(true);
+
+    // Fire-and-forget: read the uploaded CV in the background to enrich this profile
+    // with work history, skills, GCC experience, etc. — same quality as bulk import.
+    // Doesn't block or delay the "Application Received" confirmation the candidate sees.
+    if (insertedCandidate) {
+      supabase.functions.invoke("extract-cv-for-candidate", {
+        body: { candidate_id: insertedCandidate.id, cv_url: urlData.publicUrl },
+      }).catch(() => { /* best-effort enrichment — candidate's submission already succeeded regardless */ });
+    }
   }
 
   if (done) {
