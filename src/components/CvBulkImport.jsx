@@ -150,7 +150,7 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
   async function addSelectedToDatabank() {
     if (selectedIds.size === 0) { alert("Select at least one CV to add."); return; }
     setAdding(true);
-    let added = 0, skipped = 0;
+    let added = 0, skipped = 0, failed = 0, firstError = null;
 
     for (const id of selectedIds) {
       const item = items.find(i => i.id === id);
@@ -203,12 +203,18 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
       if (!error && newCand) {
         await supabase.from("cv_import_items").update({ added_to_databank: true, candidate_id: newCand.id }).eq("id", id);
         added++;
+      } else if (error) {
+        failed++;
+        if (!firstError) firstError = error.message;
       }
     }
 
     setAdding(false);
-    addLog(`Bulk import: added ${added} candidates to databank${skipped ? `, skipped ${skipped} duplicates` : ""}`);
-    alert(`Done. ${added} candidates added to your CV Databank.${skipped ? ` ${skipped} were skipped as duplicates (matching CNIC already exists).` : ""}`);
+    addLog(`Bulk import: added ${added} candidates to databank${skipped ? `, skipped ${skipped} duplicates` : ""}${failed ? `, ${failed} failed` : ""}`);
+    let summary = `Done. ${added} candidates added to your CV Databank.`;
+    if (skipped) summary += ` ${skipped} skipped as duplicates (matching CNIC already exists).`;
+    if (failed) summary += ` ${failed} failed to save — error: ${firstError}`;
+    alert(summary);
     onRefresh();
     loadItems(activeBatch.id);
   }
