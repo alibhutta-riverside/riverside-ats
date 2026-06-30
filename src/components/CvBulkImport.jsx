@@ -29,7 +29,7 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
     const { data } = await supabase.from("cv_import_items").select("*").eq("batch_id", batchId).order("file_name");
     setItems(data ?? []);
     // pre-select all high-confidence real CVs
-    const preselect = new Set((data ?? []).filter(i => i.extraction_status === "processed").map(i => i.id));
+    const preselect = new Set((data ?? []).filter(i => i.extraction_status === "processed" && !i.added_to_databank).map(i => i.id));
     setSelectedIds(preselect);
   }
 
@@ -155,16 +155,33 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
     for (const id of selectedIds) {
       const item = items.find(i => i.id === id);
       if (!item || !item.extracted_data) continue;
+
+      // Hard guard: never re-add something that's already in the databank,
+      // even if stale UI state somehow left it selected.
+      if (item.added_to_databank) { continue; }
+
       const d = item.extracted_data;
 
-      // dedupe by CNIC if present
+      // Dedupe: prefer CNIC when present, otherwise fall back to matching email or phone —
+      // most CVs (especially foreign nationals) won't have a CNIC at all, so relying on
+      // CNIC alone let exact re-imports slip through undetected.
+      let existing = null;
       if (d.cnic) {
-        const { data: existing } = await supabase.from("candidates").select("id").eq("cnic", d.cnic).limit(1);
-        if (existing && existing.length > 0) {
-          await supabase.from("cv_import_items").update({ extraction_status: "duplicate" }).eq("id", id);
-          skipped++;
-          continue;
-        }
+        const { data } = await supabase.from("candidates").select("id").eq("cnic", d.cnic).limit(1);
+        existing = data?.[0] || null;
+      }
+      if (!existing && d.email) {
+        const { data } = await supabase.from("candidates").select("id").eq("email", d.email).limit(1);
+        existing = data?.[0] || null;
+      }
+      if (!existing && d.phone) {
+        const { data } = await supabase.from("candidates").select("id").eq("phone", d.phone).limit(1);
+        existing = data?.[0] || null;
+      }
+      if (existing) {
+        await supabase.from("cv_import_items").update({ extraction_status: "duplicate", added_to_databank: true, candidate_id: existing.id }).eq("id", id);
+        skipped++;
+        continue;
       }
 
       const { data: urlData } = supabase.storage.from("cv-bulk-import").getPublicUrl(item.storage_path);
