@@ -128,6 +128,25 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
     loadItems(activeBatch.id);
   }
 
+  async function deleteItem(item) {
+    if (!window.confirm(`Delete "${item.file_name}"? This removes the file permanently and cannot be undone.`)) return;
+    await supabase.storage.from("cv-bulk-import").remove([item.storage_path]);
+    await supabase.from("cv_import_items").delete().eq("id", item.id);
+    setSelectedIds(prev => { const next = new Set(prev); next.delete(item.id); return next; });
+    loadItems(activeBatch.id);
+  }
+
+  async function deleteAllNeedsReview() {
+    const reviewItems = items.filter(i => i.extraction_status === "needs_review");
+    if (reviewItems.length === 0) return;
+    if (!window.confirm(`Delete all ${reviewItems.length} "needs review" files? This cannot be undone.`)) return;
+    for (const item of reviewItems) {
+      await supabase.storage.from("cv-bulk-import").remove([item.storage_path]);
+      await supabase.from("cv_import_items").delete().eq("id", item.id);
+    }
+    loadItems(activeBatch.id);
+  }
+
   async function addSelectedToDatabank() {
     if (selectedIds.size === 0) { alert("Select at least one CV to add."); return; }
     setAdding(true);
@@ -250,6 +269,11 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
                 🔁 Retry Failed Items
               </button>
             )}
+            {reviewCount > 0 && (
+              <button style={btn({ background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" })} onClick={deleteAllNeedsReview}>
+                🗑 Delete All "Needs Review" ({reviewCount})
+              </button>
+            )}
             <span style={{ fontSize: 12, color: "#059669", fontWeight: 600 }}>✓ {readyCount} ready</span>
             <span style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>⚠ {reviewCount} need review</span>
             <span style={{ fontSize: 12, color: "#6B7280" }}>{otherCount} other</span>
@@ -289,6 +313,7 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
                     <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, color: status.color, background: status.bg }}>{status.label}</span>
                       {d && !item.added_to_databank && <button style={btn({ padding: "4px 9px", fontSize: 11 })} onClick={() => openEdit(item)}>Review / Edit</button>}
+                      {!item.added_to_databank && <button style={btn({ padding: "4px 9px", fontSize: 11, color: "#EF4444", borderColor: "#FEE2E2" })} onClick={() => deleteItem(item)}>🗑 Delete</button>}
                     </div>
                   </div>
                 </div>
