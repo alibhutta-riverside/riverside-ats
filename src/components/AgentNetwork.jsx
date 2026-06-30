@@ -376,14 +376,33 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
                   <div style={{ fontSize: 11, color: "#4338CA", fontWeight: 600, marginBottom: 4 }}>📎 {detailAgent.name}'s Personal CV Submission Link</div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <code style={{ fontSize: 12, color: "#1E1B4B", background: "#fff", border: "1px solid #C7D2FE", borderRadius: 6, padding: "4px 8px", flex: 1, overflowX: "auto", whiteSpace: "nowrap" }}>
-                      https://apply.riverside.com.pk/?ref={detailAgent.referral_code}
+                      apply.riverside.com.pk/?ref={detailAgent.referral_slug || detailAgent.referral_code}
                     </code>
                     <button
                       style={btn({ padding: "5px 10px", fontSize: 11 })}
-                      onClick={() => { navigator.clipboard.writeText(`https://apply.riverside.com.pk/?ref=${detailAgent.referral_code}`); alert("Link copied — share it with this agent on WhatsApp."); }}
-                    >Copy</button>
+                      onClick={() => { navigator.clipboard.writeText(`https://apply.riverside.com.pk/?ref=${detailAgent.referral_slug || detailAgent.referral_code}`); alert("Link copied — share it with this agent on WhatsApp."); }}
+                    >Copy Link</button>
                   </div>
-                  <div style={{ fontSize: 10, color: "#6366F1", marginTop: 6 }}>Any CV submitted through this link is automatically credited to {detailAgent.name} — no manual entry needed.</div>
+
+                  <div style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 12 }}>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`https://apply.riverside.com.pk/?ref=${detailAgent.referral_slug || detailAgent.referral_code}`)}`}
+                      alt="QR code for submission link"
+                      style={{ width: 110, height: 110, borderRadius: 8, border: "1px solid #C7D2FE", background: "#fff" }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: "#4338CA", fontWeight: 600, marginBottom: 6 }}>📷 QR Code</div>
+                      <div style={{ fontSize: 10, color: "#6366F1", marginBottom: 8 }}>The agent can save this image on their phone. Whenever they have a candidate's CV ready, they just scan it — opens straight to their personal submission page.</div>
+                      <a
+                        href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(`https://apply.riverside.com.pk/?ref=${detailAgent.referral_slug || detailAgent.referral_code}`)}`}
+                        download={`${detailAgent.name.replace(/\s+/g, "_")}_QR_Code.png`}
+                        target="_blank" rel="noreferrer"
+                        style={{ ...btn({ padding: "5px 10px", fontSize: 11 }), textDecoration: "none", display: "inline-block" }}
+                      >⬇ Download QR Image</a>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 10, color: "#6366F1", marginTop: 10 }}>Any CV submitted through this link or QR code is automatically credited to {detailAgent.name} — no manual entry needed.</div>
                 </div>
               </div>
               {detailAgent.whatsapp && (

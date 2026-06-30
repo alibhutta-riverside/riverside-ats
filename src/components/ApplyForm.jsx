@@ -23,7 +23,7 @@ export default function ApplyForm() {
     const params = new URLSearchParams(window.location.search);
     const ref = params.get("ref");
     if (!ref) { setReferralChecked(true); return; }
-    supabase.from("public_agent_lookup").select("id, name").eq("referral_code", ref).maybeSingle()
+    supabase.from("public_agent_lookup").select("id, name").or(`referral_code.eq.${ref},referral_slug.eq.${ref}`).maybeSingle()
       .then(({ data }) => { setReferralAgent(data || null); setReferralChecked(true); });
   }, []);
 
