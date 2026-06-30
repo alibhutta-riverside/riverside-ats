@@ -1255,6 +1255,29 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
     fetchStaff();
   };
 
+  const changeStaffPassword = async (id, name) => {
+    const generate = window.confirm(`Change password for ${name}.\n\nClick OK to auto-generate a strong random password (recommended), or Cancel to type one manually.`);
+    let newPassword;
+    if (generate) {
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$";
+      newPassword = "";
+      for (let i = 0; i < 12; i++) newPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+    } else {
+      newPassword = window.prompt("Enter new password (minimum 8 characters):");
+      if (!newPassword) return;
+      if (newPassword.length < 8) { alert("Password must be at least 8 characters."); return; }
+    }
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${process.env.REACT_APP_SUPABASE_URL}/functions/v1/admin-manage-staff`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ action: "update_password", userId: id, newPassword, requesterId: session?.user?.id }),
+    });
+    const result = await res.json();
+    if (result.error) { alert(result.error); return; }
+    alert(`Password changed successfully.\n\nNew password: ${newPassword}\n\nShare this with ${name} securely (e.g. WhatsApp) — it will not be shown again.`);
+  };
+
   const toggleClient = async (id, client, current) => {
     const list = current || [];
     const updated = list.includes(client) ? list.filter(c=>c!==client) : [...list, client];
@@ -1398,6 +1421,7 @@ function StaffManagement({ S, inp, btn, pri, jobs }) {
                 <td style={S.td}>
                   <div style={{ display:"flex", gap:6 }}>
                     <button style={btn({padding:"4px 10px",fontSize:11})} onClick={()=>editStaffEmail(s.id, s.email)}>Edit Email</button>
+                    <button style={btn({padding:"4px 10px",fontSize:11,color:"#6366F1",borderColor:"#C7D2FE"})} onClick={()=>changeStaffPassword(s.id, s.full_name)}>🔑 Change Password</button>
                     <button style={btn({padding:"4px 10px",fontSize:11,color:"#EF4444",borderColor:"#FEE2E2"})} onClick={()=>deleteStaff(s.id, s.full_name)}>Delete</button>
                   </div>
                 </td>
