@@ -210,6 +210,7 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
     }
 
     setAdding(false);
+    setSelectedIds(new Set());
     addLog(`Bulk import: added ${added} candidates to databank${skipped ? `, skipped ${skipped} duplicates` : ""}${failed ? `, ${failed} failed` : ""}`);
     let summary = `Done. ${added} candidates added to your CV Databank.`;
     if (skipped) summary += ` ${skipped} skipped as duplicates (matching CNIC already exists).`;
@@ -299,7 +300,9 @@ export default function CvBulkImport({ profile, jobs, onRefresh, addLog }) {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {items.map(item => {
-              const status = STATUS_LABELS[item.extraction_status] || STATUS_LABELS.pending;
+              const status = item.added_to_databank
+                ? { label: "✓ Added", color: "#fff", bg: "#10B981" }
+                : (STATUS_LABELS[item.extraction_status] || STATUS_LABELS.pending);
               const d = item.extracted_data;
               const canSelect = item.extraction_status === "processed" || item.extraction_status === "needs_review";
               return (
