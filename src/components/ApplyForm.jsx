@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 
 const EMPTY_APP = {
@@ -15,7 +15,17 @@ export default function ApplyForm() {
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
   const [honeypot, setHoneypot] = useState(""); // bots tend to fill every field; humans never see this one
+  const [referralAgent, setReferralAgent] = useState(null);
+  const [referralChecked, setReferralChecked] = useState(false);
   const cvInputRef = useRef(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (!ref) { setReferralChecked(true); return; }
+    supabase.from("public_agent_lookup").select("id, name").eq("referral_code", ref).maybeSingle()
+      .then(({ data }) => { setReferralAgent(data || null); setReferralChecked(true); });
+  }, []);
 
   const inp = { padding: "11px 13px", border: "1px solid #E5E7EB", borderRadius: 8, fontSize: 14, width: "100%", fontFamily: "inherit", outline: "none", marginBottom: 12 };
   const label = { fontSize: 12, fontWeight: 600, color: "#6B7280", marginBottom: 5, display: "block" };
@@ -50,6 +60,7 @@ export default function ApplyForm() {
       stage: "databank",
       job_id: null,
       source: "Public Application",
+      agent_id: referralAgent?.id || null,
     }]);
 
     setSubmitting(false);
@@ -88,6 +99,12 @@ export default function ApplyForm() {
         <div style={{ background: "#fff", borderRadius: 16, padding: "24px 22px", border: "1px solid #E5E7EB" }}>
           <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Submit Your Application</div>
           <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 20 }}>Fill in your details and attach your CV. We'll keep it on file and contact you when a matching position opens.</div>
+
+          {referralChecked && referralAgent && (
+            <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 10, padding: "10px 14px", marginBottom: 18, fontSize: 13, color: "#065F46" }}>
+              ✓ Applying via referral: <b>{referralAgent.name}</b>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit}>
             {/* Honeypot - hidden from real users, bots often fill it anyway */}

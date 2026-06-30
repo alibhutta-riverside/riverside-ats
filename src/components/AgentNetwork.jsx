@@ -372,6 +372,19 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
                     ))}
                   </div>
                 )}
+                <div style={{ marginTop: 12, background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 11, color: "#4338CA", fontWeight: 600, marginBottom: 4 }}>📎 {detailAgent.name}'s Personal CV Submission Link</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <code style={{ fontSize: 12, color: "#1E1B4B", background: "#fff", border: "1px solid #C7D2FE", borderRadius: 6, padding: "4px 8px", flex: 1, overflowX: "auto", whiteSpace: "nowrap" }}>
+                      https://apply.riverside.com.pk/?ref={detailAgent.referral_code}
+                    </code>
+                    <button
+                      style={btn({ padding: "5px 10px", fontSize: 11 })}
+                      onClick={() => { navigator.clipboard.writeText(`https://apply.riverside.com.pk/?ref=${detailAgent.referral_code}`); alert("Link copied — share it with this agent on WhatsApp."); }}
+                    >Copy</button>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#6366F1", marginTop: 6 }}>Any CV submitted through this link is automatically credited to {detailAgent.name} — no manual entry needed.</div>
+                </div>
               </div>
               {detailAgent.whatsapp && (
                 <button style={btn({ background: "#10B981", color: "#fff", border: "none" })} onClick={() => { setSelectedIds(new Set([detailAgent.id])); setDetailAgent(null); setBroadcastOpen(true); }}>
