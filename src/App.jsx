@@ -4,6 +4,7 @@ import { STAGES, STAGE_MAP, COUNTRIES, YNP, PP_STATUSES, TRADE_TEST_OPTS, EMPTY_
 import Login from "./components/Login";
 import ApplyForm from "./components/ApplyForm";
 import Databank from "./components/Databank";
+import CvBulkImport from "./components/CvBulkImport";
 import CrmDashboard from "./crm/CrmDashboard";
 import ClientList from "./crm/ClientList";
 import ClientDetail from "./crm/ClientDetail";
@@ -459,6 +460,7 @@ function AppInner() {
             <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"8px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Main</div>
             <NavItem p="dashboard" icon="⬛" label="Dashboard"/>
             <NavItem p="databank" icon="📁" label="CV Databank"/>
+            <NavItem p="bulkimport" icon="🤖" label="Bulk CV Import"/>
             <NavItem p="candidates" icon="👥" label="In-Process Candidates"/>
             <NavItem p="pipeline" icon="📊" label="Pipeline"/>
             <NavItem p="jobs" icon="📋" label="Job Orders"/>
@@ -486,7 +488,7 @@ function AppInner() {
         <div className="desktop-header" style={{background:"#fff",borderBottom:"1px solid #E5E7EB",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,flexWrap:"wrap",gap:10}}>
           <div>
             <div style={{fontWeight:700,fontSize:16}}>
-              {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="candidates"&&"In-Process Candidates"}
+              {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="bulkimport"&&"Bulk CV Import"}{page==="candidates"&&"In-Process Candidates"}
               {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"Client CRM"}{page==="staff"&&"Staff Access Management"}{page==="auditlog"&&"Audit Log"}
             </div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
@@ -604,6 +606,11 @@ function AppInner() {
           {/* ══ CV DATABANK ══ */}
           {page==="databank"&&(
             <Databank candidates={visibleCandsAll} jobs={visibleJobs} profile={profile} onRefresh={fetchAll} addLog={addLog} S={S} inp={inp} btn={btn} pri={pri} FR={FR} />
+          )}
+
+          {/* ══ BULK CV IMPORT (AI) ══ */}
+          {page==="bulkimport"&&(
+            <CvBulkImport profile={profile} jobs={visibleJobs} onRefresh={fetchAll} addLog={addLog} />
           )}
 
           {/* ══ IN-PROCESS CANDIDATES ══ */}
