@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 
 const EMPTY_AGENT = { name: "", company_name: "", phone: "", whatsapp: "", country: "", city: "", notes: "" };
+const EMPTY_INTERACTION = { interaction_type: "call", summary: "", outcome: "", next_followup_date: "", next_followup_notes: "" };
 
 export default function AgentNetwork({ profile, jobs, addLog }) {
   const [agents, setAgents] = useState([]);
   const [candidateCounts, setCandidateCounts] = useState({}); // agent_id -> { total, databank, inProcess, deployed, last }
+  const [lastContacted, setLastContacted] = useState({}); // agent_id -> most recent interaction_date
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
   const [showAddForm, setShowAddForm] = useState(false);
@@ -13,6 +15,9 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
   const [saving, setSaving] = useState(false);
   const [detailAgent, setDetailAgent] = useState(null);
   const [detailCandidates, setDetailCandidates] = useState([]);
+  const [detailInteractions, setDetailInteractions] = useState([]);
+  const [showInteractionForm, setShowInteractionForm] = useState(false);
+  const [interactionForm, setInteractionForm] = useState(EMPTY_INTERACTION);
   const [editingAgent, setEditingAgent] = useState(null);
   const [editForm, setEditForm] = useState(null);
 
@@ -47,6 +52,11 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
       if (!counts[c.agent_id].last || c.added_date > counts[c.agent_id].last) counts[c.agent_id].last = c.added_date;
     });
     setCandidateCounts(counts);
+
+    const { data: allInteractions } = await supabase.from("agent_interactions").select("agent_id, interaction_date").order("interaction_date", { ascending: false });
+    const lastMap = {};
+    (allInteractions ?? []).forEach(i => { if (!lastMap[i.agent_id]) lastMap[i.agent_id] = i.interaction_date; });
+    setLastContacted(lastMap);
   }
 
   async function saveAgent(e) {
@@ -85,6 +95,21 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
     setDetailAgent(agent);
     const { data } = await supabase.from("candidates").select("id, name, trade, stage, added_date, job_id").eq("agent_id", agent.id).order("added_date", { ascending: false });
     setDetailCandidates(data ?? []);
+    const { data: interactions } = await supabase.from("agent_interactions").select("*, team_members(full_name)").eq("agent_id", agent.id).order("interaction_date", { ascending: false });
+    setDetailInteractions(interactions ?? []);
+  }
+
+  async function submitInteraction(e) {
+    e.preventDefault();
+    await supabase.from("agent_interactions").insert({
+      agent_id: detailAgent.id, team_member_id: profile.id, ...interactionForm,
+      next_followup_date: interactionForm.next_followup_date || null,
+    });
+    addLog(`Logged ${interactionForm.interaction_type} with agent: ${detailAgent.name}`);
+    setInteractionForm(EMPTY_INTERACTION);
+    setShowInteractionForm(false);
+    openDetail(detailAgent);
+    loadAgents();
   }
 
   function toggleSelect(id) {
@@ -178,6 +203,9 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {filtered.map(agent => {
               const stats = candidateCounts[agent.id] || { total: 0, databank: 0, inProcess: 0, deployed: 0, last: null };
+              const lastContactDate = lastContacted[agent.id];
+              const daysSinceContact = lastContactDate ? Math.floor((Date.now() - new Date(lastContactDate).getTime()) / 86400000) : null;
+              const contactColor = daysSinceContact === null ? "#9CA3AF" : daysSinceContact <= 7 ? "#10B981" : daysSinceContact <= 21 ? "#F59E0B" : "#EF4444";
               return (
                 <div key={agent.id} style={{ ...card, padding: 14 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -197,6 +225,9 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flexShrink: 0 }}>
                       <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: agent.status === "active" ? "#D1FAE5" : "#F3F4F6", color: agent.status === "active" ? "#065F46" : "#6B7280" }}>{agent.status}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: contactColor }}>
+                        {daysSinceContact === null ? "Never contacted" : daysSinceContact === 0 ? "Contacted today" : `Contacted ${daysSinceContact}d ago`}
+                      </span>
                       <div style={{ display: "flex", gap: 4 }}>
                         <button style={btn({ padding: "3px 8px", fontSize: 10 })} onClick={() => openEditAgent(agent)}>Edit</button>
                         <button style={btn({ padding: "3px 8px", fontSize: 10 })} onClick={() => toggleAgentStatus(agent)}>{agent.status === "active" ? "Deactivate" : "Activate"}</button>
@@ -229,6 +260,39 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
                 </button>
               )}
             </div>
+          </div>
+
+          <button onClick={() => setShowInteractionForm(s => !s)} style={{ width: "100%", background: showInteractionForm ? "#fff" : "#111827", color: showInteractionForm ? "#374151" : "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 14 }}>
+            {showInteractionForm ? "Cancel" : "+ Log Contact / Interaction"}
+          </button>
+
+          {showInteractionForm && (
+            <form onSubmit={submitInteraction} style={{ ...card, padding: 16, marginBottom: 16, background: "#F9FAFB" }}>
+              <select value={interactionForm.interaction_type} onChange={e => setInteractionForm(f => ({ ...f, interaction_type: e.target.value }))} style={inp}>
+                <option value="call">Call</option><option value="whatsapp">WhatsApp</option><option value="meeting">Meeting</option><option value="visit">In-person visit</option><option value="other">Other</option>
+              </select>
+              <textarea placeholder="What was discussed (e.g. updated on open positions, asked for 5 electricians)" value={interactionForm.summary} onChange={e => setInteractionForm(f => ({ ...f, summary: e.target.value }))} style={{ ...inp, minHeight: 50 }} />
+              <input placeholder="Outcome (e.g. agreed to send candidates by Friday)" value={interactionForm.outcome} onChange={e => setInteractionForm(f => ({ ...f, outcome: e.target.value }))} style={inp} />
+              <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Next follow-up date (optional)</div>
+              <input type="date" value={interactionForm.next_followup_date} onChange={e => setInteractionForm(f => ({ ...f, next_followup_date: e.target.value }))} style={inp} />
+              <button type="submit" style={btn({ background: "#10B981", color: "#fff", border: "none", width: "100%" })}>Save</button>
+            </form>
+          )}
+
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Contact History ({detailInteractions.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
+            {detailInteractions.map(i => (
+              <div key={i.id} style={{ ...card, padding: "10px 14px", fontSize: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", color: "#9CA3AF", marginBottom: 4 }}>
+                  <span style={{ textTransform: "capitalize" }}>{i.interaction_type} · {i.team_members?.full_name || "Unknown"}</span>
+                  <span>{new Date(i.interaction_date).toLocaleDateString()}</span>
+                </div>
+                {i.summary && <div style={{ color: "#374151" }}>{i.summary}</div>}
+                {i.outcome && <div style={{ color: "#059669", marginTop: 4 }}><b>Outcome:</b> {i.outcome}</div>}
+                {i.next_followup_date && <div style={{ color: "#3B82F6", fontSize: 11, marginTop: 4 }}>Next follow-up: {i.next_followup_date}</div>}
+              </div>
+            ))}
+            {detailInteractions.length === 0 && <div style={{ color: "#9CA3AF", fontSize: 13, textAlign: "center", padding: 16 }}>No contact logged yet.</div>}
           </div>
 
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Candidates Sourced ({detailCandidates.length})</div>
