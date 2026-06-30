@@ -1,0 +1,324 @@
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "../lib/supabase";
+
+const EMPTY_AGENT = { name: "", company_name: "", phone: "", whatsapp: "", country: "", city: "", notes: "" };
+
+export default function AgentNetwork({ profile, jobs, addLog }) {
+  const [agents, setAgents] = useState([]);
+  const [candidateCounts, setCandidateCounts] = useState({}); // agent_id -> { total, databank, inProcess, deployed, last }
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("active");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [form, setForm] = useState(EMPTY_AGENT);
+  const [saving, setSaving] = useState(false);
+  const [detailAgent, setDetailAgent] = useState(null);
+  const [detailCandidates, setDetailCandidates] = useState([]);
+  const [editingAgent, setEditingAgent] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+
+  // Broadcast messaging
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [attachmentPreview, setAttachmentPreview] = useState(null);
+  const [waLinks, setWaLinks] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const inp = { padding: "8px 11px", border: "1px solid #E5E7EB", borderRadius: 8, fontSize: 13, width: "100%", fontFamily: "inherit", outline: "none", marginBottom: 8 };
+  const btn = (extra = {}) => ({ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 13, color: "#374151", fontFamily: "inherit", ...extra });
+  const card = { background: "#fff", borderRadius: 12, border: "1px solid #E5E7EB" };
+
+  useEffect(() => { loadAgents(); }, [statusFilter]);
+
+  async function loadAgents() {
+    let query = supabase.from("agents").select("*").order("name");
+    if (statusFilter !== "all") query = query.eq("status", statusFilter);
+    const { data: agentList } = await query;
+    setAgents(agentList ?? []);
+
+    const { data: cands } = await supabase.from("candidates").select("agent_id, stage, added_date").not("agent_id", "is", null);
+    const counts = {};
+    (cands ?? []).forEach(c => {
+      if (!counts[c.agent_id]) counts[c.agent_id] = { total: 0, databank: 0, inProcess: 0, deployed: 0, last: null };
+      counts[c.agent_id].total++;
+      if (c.stage === "databank") counts[c.agent_id].databank++;
+      else if (c.stage === "deployed") counts[c.agent_id].deployed++;
+      else counts[c.agent_id].inProcess++;
+      if (!counts[c.agent_id].last || c.added_date > counts[c.agent_id].last) counts[c.agent_id].last = c.added_date;
+    });
+    setCandidateCounts(counts);
+  }
+
+  async function saveAgent(e) {
+    e.preventDefault();
+    if (!form.name.trim()) { alert("Agent name is required"); return; }
+    setSaving(true);
+    const { error } = await supabase.from("agents").insert({ ...form, created_by: profile.id });
+    setSaving(false);
+    if (error) { alert(error.message); return; }
+    addLog(`Added agent to network: ${form.name}`);
+    setForm(EMPTY_AGENT);
+    setShowAddForm(false);
+    loadAgents();
+  }
+
+  async function toggleAgentStatus(agent) {
+    const newStatus = agent.status === "active" ? "inactive" : "active";
+    await supabase.from("agents").update({ status: newStatus }).eq("id", agent.id);
+    addLog(`Marked agent "${agent.name}" as ${newStatus}`);
+    loadAgents();
+  }
+
+  function openEditAgent(agent) {
+    setEditingAgent(agent.id);
+    setEditForm({ name: agent.name, company_name: agent.company_name || "", phone: agent.phone || "", whatsapp: agent.whatsapp || "", country: agent.country || "", city: agent.city || "", notes: agent.notes || "" });
+  }
+
+  async function saveEditAgent() {
+    await supabase.from("agents").update(editForm).eq("id", editingAgent);
+    addLog(`Updated agent details: ${editForm.name}`);
+    setEditingAgent(null);
+    loadAgents();
+  }
+
+  async function openDetail(agent) {
+    setDetailAgent(agent);
+    const { data } = await supabase.from("candidates").select("id, name, trade, stage, added_date, job_id").eq("agent_id", agent.id).order("added_date", { ascending: false });
+    setDetailCandidates(data ?? []);
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(filtered.filter(a => a.whatsapp).map(a => a.id)));
+  }
+
+  function insertActiveJobOrders() {
+    const openJobs = (jobs || []).filter(j => j.status === "Open");
+    if (openJobs.length === 0) { alert("No open job orders right now."); return; }
+    const lines = openJobs.map(j => `▸ ${j.position} (${j.client}) — ${j.vacancies} vacancies, ${j.country}${j.salary ? `, SAR ${j.salary}` : ""}`).join("\n");
+    setMessage(prev => `${prev ? prev + "\n\n" : ""}*Current Open Demands:*\n${lines}\n\nPlease send suitable candidates. Contact us for full details.`);
+  }
+
+  function handleAttachment(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAttachmentPreview({ name: file.name, url: URL.createObjectURL(file) });
+  }
+
+  function generateBroadcastLinks() {
+    if (!message.trim()) { alert("Write a message first."); return; }
+    const targets = agents.filter(a => selectedIds.has(a.id) && a.whatsapp);
+    if (targets.length === 0) { alert("Select at least one agent with a WhatsApp number on file."); return; }
+    const links = targets.map(a => ({
+      id: a.id, name: a.name,
+      url: `https://wa.me/${a.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(message)}`,
+    }));
+    setWaLinks(links);
+    addLog(`Prepared WhatsApp broadcast to ${links.length} agent(s)${attachmentPreview ? " with image attachment" : ""}`);
+  }
+
+  const filtered = agents.filter(a =>
+    `${a.name} ${a.company_name || ""} ${a.country || ""}`.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const STAGE_LABEL_MAP = { databank: "In Databank", deployed: "Deployed" };
+
+  return (
+    <div>
+      <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 12, padding: "14px 18px", marginBottom: 18 }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: "#92400E" }}>🤝 Agent Network</div>
+        <div style={{ fontSize: 12, color: "#92400E", marginTop: 2 }}>
+          Tracking starts fresh from today — every candidate added from now on can be linked to the agent who sourced them, building a real performance record over time. Past history before this system isn't included.
+        </div>
+      </div>
+
+      {!detailAgent && (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <input style={{ ...inp, maxWidth: 240, marginBottom: 0 }} placeholder="Search agents…" value={search} onChange={e => setSearch(e.target.value)} />
+            <select style={{ ...inp, width: "auto", marginBottom: 0 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="all">All</option>
+            </select>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              {selectedIds.size > 0 && (
+                <button style={btn({ background: "#10B981", color: "#fff", border: "none" })} onClick={() => setBroadcastOpen(true)}>
+                  💬 Message {selectedIds.size} Selected
+                </button>
+              )}
+              <button style={btn({ background: "#111827", color: "#fff", border: "none" })} onClick={() => setShowAddForm(s => !s)}>
+                {showAddForm ? "Cancel" : "+ Add Agent"}
+              </button>
+            </div>
+          </div>
+
+          {showAddForm && (
+            <form onSubmit={saveAgent} style={{ ...card, padding: 16, marginBottom: 16, background: "#F9FAFB" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <input style={inp} placeholder="Agent name *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+                <input style={inp} placeholder="Company / Agency name" value={form.company_name} onChange={e => setForm(f => ({ ...f, company_name: e.target.value }))} />
+                <input style={inp} placeholder="Phone" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+                <input style={inp} placeholder="WhatsApp (with country code, e.g. 923001234567)" value={form.whatsapp} onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))} />
+                <input style={inp} placeholder="Country" value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} />
+                <input style={inp} placeholder="City" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
+              </div>
+              <textarea style={{ ...inp, minHeight: 50 }} placeholder="Notes (specialty, reliability, anything worth flagging)" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+              <button type="submit" disabled={saving} style={btn({ background: "#111827", color: "#fff", border: "none" })}>{saving ? "Saving…" : "Save Agent"}</button>
+            </form>
+          )}
+
+          {selectedIds.size === 0 && filtered.some(a => a.whatsapp) && (
+            <button style={{ ...btn({ fontSize: 12 }), marginBottom: 12 }} onClick={selectAllVisible}>☑ Select All Visible (with WhatsApp)</button>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filtered.map(agent => {
+              const stats = candidateCounts[agent.id] || { total: 0, databank: 0, inProcess: 0, deployed: 0, last: null };
+              return (
+                <div key={agent.id} style={{ ...card, padding: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                      <input type="checkbox" checked={selectedIds.has(agent.id)} onChange={() => toggleSelect(agent.id)} disabled={!agent.whatsapp} title={!agent.whatsapp ? "No WhatsApp number on file" : ""} style={{ marginTop: 4 }} />
+                      <div style={{ cursor: "pointer" }} onClick={() => openDetail(agent)}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>{agent.name}</div>
+                        <div style={{ fontSize: 12, color: "#6B7280" }}>{agent.company_name} {agent.city && `· ${agent.city}`} {agent.country && `, ${agent.country}`}</div>
+                        <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 11, flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 700, color: "#374151" }}>{stats.total} total candidates</span>
+                          {stats.databank > 0 && <span style={{ color: "#9CA3AF" }}>{stats.databank} in databank</span>}
+                          {stats.inProcess > 0 && <span style={{ color: "#D97706" }}>{stats.inProcess} in process</span>}
+                          {stats.deployed > 0 && <span style={{ color: "#059669", fontWeight: 600 }}>✓ {stats.deployed} deployed</span>}
+                          {stats.last && <span style={{ color: "#9CA3AF" }}>· last submitted {stats.last}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flexShrink: 0 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: agent.status === "active" ? "#D1FAE5" : "#F3F4F6", color: agent.status === "active" ? "#065F46" : "#6B7280" }}>{agent.status}</span>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button style={btn({ padding: "3px 8px", fontSize: 10 })} onClick={() => openEditAgent(agent)}>Edit</button>
+                        <button style={btn({ padding: "3px 8px", fontSize: 10 })} onClick={() => toggleAgentStatus(agent)}>{agent.status === "active" ? "Deactivate" : "Activate"}</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {filtered.length === 0 && <div style={{ textAlign: "center", color: "#9CA3AF", padding: 30, fontSize: 13 }}>No agents yet. Click "+ Add Agent" to start building your network.</div>}
+          </div>
+        </>
+      )}
+
+      {/* ══ AGENT DETAIL VIEW ══ */}
+      {detailAgent && (
+        <div>
+          <button style={{ background: "none", border: "none", color: "#6B7280", fontSize: 13, cursor: "pointer", padding: 0, marginBottom: 14 }} onClick={() => setDetailAgent(null)}>← Back to all agents</button>
+
+          <div style={{ ...card, padding: 18, marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 18 }}>{detailAgent.name}</div>
+                <div style={{ fontSize: 13, color: "#6B7280", marginTop: 2 }}>{detailAgent.company_name} {detailAgent.city && `· ${detailAgent.city}`} {detailAgent.country && `, ${detailAgent.country}`}</div>
+                {detailAgent.notes && <div style={{ fontSize: 12, color: "#92400E", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px", marginTop: 10 }}>{detailAgent.notes}</div>}
+              </div>
+              {detailAgent.whatsapp && (
+                <button style={btn({ background: "#10B981", color: "#fff", border: "none" })} onClick={() => { setSelectedIds(new Set([detailAgent.id])); setDetailAgent(null); setBroadcastOpen(true); }}>
+                  💬 Message
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Candidates Sourced ({detailCandidates.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {detailCandidates.map(c => (
+              <div key={c.id} style={{ ...card, padding: "10px 14px", display: "flex", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</div>
+                  <div style={{ fontSize: 11, color: "#6B7280" }}>{c.trade}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: c.stage === "deployed" ? "#059669" : "#6B7280" }}>{STAGE_LABEL_MAP[c.stage] || c.stage}</div>
+                  <div style={{ fontSize: 10, color: "#9CA3AF" }}>{c.added_date}</div>
+                </div>
+              </div>
+            ))}
+            {detailCandidates.length === 0 && <div style={{ color: "#9CA3AF", fontSize: 13, textAlign: "center", padding: 20 }}>No candidates linked to this agent yet.</div>}
+          </div>
+        </div>
+      )}
+
+      {/* ══ EDIT AGENT MODAL ══ */}
+      {editingAgent && editForm && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={e => e.target === e.currentTarget && setEditingAgent(null)}>
+          <div style={{ background: "#fff", borderRadius: 16, width: 480, maxHeight: "85vh", overflowY: "auto", padding: 20 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Edit Agent</div>
+            <input style={inp} placeholder="Name" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+            <input style={inp} placeholder="Company" value={editForm.company_name} onChange={e => setEditForm(f => ({ ...f, company_name: e.target.value }))} />
+            <input style={inp} placeholder="Phone" value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
+            <input style={inp} placeholder="WhatsApp" value={editForm.whatsapp} onChange={e => setEditForm(f => ({ ...f, whatsapp: e.target.value }))} />
+            <input style={inp} placeholder="Country" value={editForm.country} onChange={e => setEditForm(f => ({ ...f, country: e.target.value }))} />
+            <input style={inp} placeholder="City" value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} />
+            <textarea style={{ ...inp, minHeight: 50 }} placeholder="Notes" value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
+              <button style={btn()} onClick={() => setEditingAgent(null)}>Cancel</button>
+              <button style={btn({ background: "#111827", color: "#fff", border: "none" })} onClick={saveEditAgent}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ BROADCAST / MESSAGE MODAL ══ */}
+      {broadcastOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          onClick={e => e.target === e.currentTarget && setBroadcastOpen(false)}>
+          <div style={{ background: "#fff", borderRadius: 16, width: 560, maxHeight: "88vh", overflowY: "auto", padding: 20 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Message {selectedIds.size} Agent{selectedIds.size !== 1 ? "s" : ""}</div>
+            <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 14 }}>Generates a WhatsApp link per agent with your message pre-filled. Click each to open and send.</div>
+
+            <button style={{ ...btn({ fontSize: 12, marginBottom: 10 }) }} onClick={insertActiveJobOrders}>📋 Insert Current Open Job Orders</button>
+
+            <textarea style={{ ...inp, minHeight: 130 }} placeholder="Write your message or announcement…" value={message} onChange={e => setMessage(e.target.value)} />
+
+            <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAttachment} />
+            {attachmentPreview ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: 8 }}>
+                <img src={attachmentPreview.url} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }} />
+                <span style={{ fontSize: 12, color: "#065F46", flex: 1 }}>{attachmentPreview.name}</span>
+                <button style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 12 }} onClick={() => setAttachmentPreview(null)}>Remove</button>
+              </div>
+            ) : (
+              <button style={{ ...btn({ fontSize: 12, marginBottom: 10 }) }} onClick={() => fileInputRef.current.click()}>📎 Attach Image (poster / advert)</button>
+            )}
+            {attachmentPreview && (
+              <div style={{ fontSize: 11, color: "#92400E", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: 8, marginBottom: 10 }}>
+                WhatsApp links can't auto-attach images. Save this image to your phone first, then attach it manually in each WhatsApp chat alongside the pre-filled message.
+              </div>
+            )}
+
+            <button style={btn({ background: "#10B981", color: "#fff", border: "none", width: "100%" })} onClick={generateBroadcastLinks}>💬 Generate WhatsApp Links</button>
+
+            {waLinks && (
+              <div style={{ marginTop: 14, border: "1px solid #A7F3D0", borderRadius: 10, padding: 12, background: "#ECFDF5" }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: "#065F46", marginBottom: 8 }}>{waLinks.length} link{waLinks.length !== 1 ? "s" : ""} ready</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+                  {waLinks.map(l => (
+                    <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{ display: "flex", justifyContent: "space-between", background: "#fff", border: "1px solid #A7F3D0", borderRadius: 8, padding: "8px 12px", fontSize: 12, textDecoration: "none", color: "#111827" }}>
+                      <span>{l.name}</span><span style={{ color: "#10B981", fontWeight: 600 }}>Open chat →</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button style={btn()} onClick={() => { setBroadcastOpen(false); setWaLinks(null); setMessage(""); setAttachmentPreview(null); }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -5,6 +5,7 @@ import Login from "./components/Login";
 import ApplyForm from "./components/ApplyForm";
 import Databank from "./components/Databank";
 import CvBulkImport from "./components/CvBulkImport";
+import AgentNetwork from "./components/AgentNetwork";
 import CrmDashboard from "./crm/CrmDashboard";
 import ClientList from "./crm/ClientList";
 import ClientDetail from "./crm/ClientDetail";
@@ -464,6 +465,7 @@ function AppInner() {
             <NavItem p="candidates" icon="👥" label="In-Process Candidates"/>
             <NavItem p="pipeline" icon="📊" label="Pipeline"/>
             <NavItem p="jobs" icon="📋" label="Job Orders"/>
+            <NavItem p="agents" icon="🤝" label="Agent Network"/>
             <div style={{fontSize:10,fontWeight:600,color:"#D1D5DB",padding:"12px 4px 4px",textTransform:"uppercase",letterSpacing:.8}}>Reports</div>
             <NavItem p="reports" icon="📄" label="Status Reports"/>
           </>}
@@ -488,7 +490,7 @@ function AppInner() {
         <div className="desktop-header" style={{background:"#fff",borderBottom:"1px solid #E5E7EB",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10,flexWrap:"wrap",gap:10}}>
           <div>
             <div style={{fontWeight:700,fontSize:16}}>
-              {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="bulkimport"&&"Bulk CV Import"}{page==="candidates"&&"In-Process Candidates"}
+              {page==="dashboard"&&"Dashboard"}{page==="databank"&&"CV Databank"}{page==="bulkimport"&&"Bulk CV Import"}{page==="agents"&&"Agent Network"}{page==="candidates"&&"In-Process Candidates"}
               {page==="pipeline"&&"Pipeline"}{page==="jobs"&&"Job Orders"}{page==="reports"&&"Status Reports"}{page==="crm"&&"Client CRM"}{page==="staff"&&"Staff Access Management"}{page==="auditlog"&&"Audit Log"}
             </div>
             <div style={{fontSize:12,color:"#9CA3AF",marginTop:1}}>{today()}</div>
@@ -611,6 +613,11 @@ function AppInner() {
           {/* ══ BULK CV IMPORT (AI) ══ */}
           {page==="bulkimport"&&(
             <CvBulkImport profile={profile} jobs={visibleJobs} onRefresh={fetchAll} addLog={addLog} />
+          )}
+
+          {/* ══ AGENT NETWORK ══ */}
+          {page==="agents"&&(
+            <AgentNetwork profile={profile} jobs={visibleJobs} addLog={addLog} />
           )}
 
           {/* ══ IN-PROCESS CANDIDATES ══ */}

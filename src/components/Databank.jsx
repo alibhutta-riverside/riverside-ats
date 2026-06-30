@@ -1,10 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { supabase } from "../lib/supabase";
 import { EMPTY_CAND, uid, fmtDate, today, COUNTRIES, sanitizeForDb } from "../lib/constants";
 
 export default function Databank({ candidates, jobs, profile, onRefresh, addLog, S, inp, btn, pri, FR }) {
+  const [agents, setAgents] = useState([]);
   const [search, setSearch] = useState("");
   const [tradeFilter, setTradeFilter] = useState("");
   const [experienceFilter, setExperienceFilter] = useState("");
@@ -23,6 +24,10 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
   const [bulkText, setBulkText] = useState("");
   const photoInputRef = useRef(null);
   const cvInputRef = useRef(null);
+
+  useEffect(() => {
+    supabase.from("agents").select("id, name, company_name").eq("status", "active").order("name").then(({ data }) => setAgents(data ?? []));
+  }, []);
 
   const unassignedCands = candidates.filter(c => c.stage === "databank" || !c.job_id);
   const deployedCands = candidates.filter(c => c.stage === "deployed");
@@ -748,6 +753,12 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                 <FR label="Passport No."><input style={inp} value={cf.passport} onChange={e=>setCf(f=>({...f,passport:e.target.value}))} /></FR>
                 <FR label="Passport Expiry"><input style={inp} type="date" value={cf.passport_expiry} onChange={e=>setCf(f=>({...f,passport_expiry:e.target.value}))} /></FR>
                 <FR label="Source"><input style={inp} value={cf.source} onChange={e=>setCf(f=>({...f,source:e.target.value}))} placeholder="Walk-in, referral, agent…" /></FR>
+                <FR label="Sourcing Agent (Agent Network)">
+                  <select style={inp} value={cf.agent_id||""} onChange={e=>setCf(f=>({...f,agent_id:e.target.value||null}))}>
+                    <option value="">— None / Direct —</option>
+                    {agents.map(a=><option key={a.id} value={a.id}>{a.name}{a.company_name?` (${a.company_name})`:""}</option>)}
+                  </select>
+                </FR>
                 <FR label="Marital Status">
                   <select style={inp} value={cf.marital_status||""} onChange={e=>setCf(f=>({...f,marital_status:e.target.value}))}>
                     <option value="">— Not specified —</option>
