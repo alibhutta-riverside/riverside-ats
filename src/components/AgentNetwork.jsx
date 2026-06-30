@@ -18,6 +18,16 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
   const [detailInteractions, setDetailInteractions] = useState([]);
   const [showInteractionForm, setShowInteractionForm] = useState(false);
   const [interactionForm, setInteractionForm] = useState(EMPTY_INTERACTION);
+
+  // Daily post approval (#5)
+  const [pendingPost, setPendingPost] = useState(null);
+  const [postEditEn, setPostEditEn] = useState("");
+  const [postEditUr, setPostEditUr] = useState("");
+  const [postLanguage, setPostLanguage] = useState("en");
+  const [generatingPost, setGeneratingPost] = useState(false);
+
+  // Deployment notifications (#1)
+  const [unnotifiedDeployments, setUnnotifiedDeployments] = useState([]);
   const [editingAgent, setEditingAgent] = useState(null);
   const [editForm, setEditForm] = useState(null);
 
@@ -34,6 +44,63 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
   const card = { background: "#fff", borderRadius: 12, border: "1px solid #E5E7EB" };
 
   useEffect(() => { loadAgents(); }, [statusFilter]);
+  useEffect(() => { loadPendingPost(); loadUnnotifiedDeployments(); }, []);
+
+  async function loadPendingPost() {
+    const { data } = await supabase.from("agent_posts").select("*").eq("status", "pending_approval").order("generated_at", { ascending: false }).limit(1).maybeSingle();
+    setPendingPost(data || null);
+    if (data) { setPostEditEn(data.content_en || ""); setPostEditUr(data.content_ur || ""); }
+  }
+
+  async function generateTodaysPost() {
+    setGeneratingPost(true);
+    const { error } = await supabase.functions.invoke("generate-agent-post", { body: {} });
+    setGeneratingPost(false);
+    if (error) { alert("Could not generate a post: " + error.message); return; }
+    await loadPendingPost();
+  }
+
+  async function approveAndBroadcastPost() {
+    if (!pendingPost) return;
+    const content = postLanguage === "ur" ? postEditUr : postEditEn;
+    if (!content.trim()) { alert("Message is empty."); return; }
+    await supabase.from("agent_posts").update({
+      content_en: postEditEn, content_ur: postEditUr, status: "approved", approved_by: profile.id, approved_at: new Date().toISOString(),
+    }).eq("id", pendingPost.id);
+    addLog(`Approved today's agent post (${postLanguage === "ur" ? "Urdu" : "English"})`);
+    setMessage(content);
+    setBroadcastOpen(true);
+    setPendingPost(null);
+  }
+
+  async function rejectPost() {
+    if (!pendingPost || !window.confirm("Reject today's draft? You can generate a new one after.")) return;
+    await supabase.from("agent_posts").update({ status: "rejected", approved_by: profile.id, approved_at: new Date().toISOString() }).eq("id", pendingPost.id);
+    addLog("Rejected today's auto-drafted agent post");
+    setPendingPost(null);
+  }
+
+  async function loadUnnotifiedDeployments() {
+    const { data } = await supabase.from("candidates").select("id, name, trade, agent_id, agents(name, whatsapp)").eq("stage", "deployed").eq("agent_notified_deployment", false).not("agent_id", "is", null);
+    setUnnotifiedDeployments(data ?? []);
+  }
+
+  function notifyAgentOfDeployment(candidate) {
+    if (!candidate.agents?.whatsapp) { alert(`${candidate.agents?.name || "This agent"} has no WhatsApp number on file.`); return; }
+    const text = `Great news! Your candidate ${candidate.name} (${candidate.trade}) has been successfully deployed. Thank you for the great referral — please keep sending quality candidates our way! 🎉`;
+    window.open(`https://wa.me/${candidate.agents.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`, "_blank");
+    supabase.from("candidates").update({ agent_notified_deployment: true }).eq("id", candidate.id).then(() => {
+      addLog(`Notified agent ${candidate.agents.name} of ${candidate.name}'s deployment`);
+      loadUnnotifiedDeployments();
+    });
+  }
+
+  async function updateReliability(agent, rating) {
+    await supabase.from("agents").update({ reliability_rating: rating }).eq("id", agent.id);
+    addLog(`Set reliability rating for ${agent.name}: ${rating} star${rating !== 1 ? "s" : ""}`);
+    loadAgents();
+    if (detailAgent?.id === agent.id) setDetailAgent({ ...detailAgent, reliability_rating: rating });
+  }
 
   async function loadAgents() {
     let query = supabase.from("agents").select("*").order("name");
@@ -156,9 +223,50 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
       <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 12, padding: "14px 18px", marginBottom: 18 }}>
         <div style={{ fontWeight: 700, fontSize: 14, color: "#92400E" }}>🤝 Agent Network</div>
         <div style={{ fontSize: 12, color: "#92400E", marginTop: 2 }}>
-          Tracking starts fresh from today — every candidate added from now on can be linked to the agent who sourced them, building a real performance record over time. Past history before this system isn't included.
+          Performance tracking covers everything since this system went live — candidates linked to an agent here count toward their real record.
         </div>
       </div>
+
+      {!detailAgent && pendingPost && (
+        <div style={{ ...card, border: "2px solid #6366F1", marginBottom: 16, padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#3730A3" }}>📝 Today's Agent Post — Awaiting Your Approval</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => setPostLanguage("en")} style={{ ...btn({ padding: "4px 10px", fontSize: 11 }), background: postLanguage === "en" ? "#EEF2FF" : "#fff", color: postLanguage === "en" ? "#4338CA" : "#6B7280" }}>English</button>
+              <button onClick={() => setPostLanguage("ur")} style={{ ...btn({ padding: "4px 10px", fontSize: 11 }), background: postLanguage === "ur" ? "#EEF2FF" : "#fff", color: postLanguage === "ur" ? "#4338CA" : "#6B7280" }}>اردو</button>
+            </div>
+          </div>
+          <textarea
+            style={{ ...inp, minHeight: 90, direction: postLanguage === "ur" ? "rtl" : "ltr", fontFamily: postLanguage === "ur" ? "'Noto Nastaliq Urdu', serif" : "inherit" }}
+            value={postLanguage === "ur" ? postEditUr : postEditEn}
+            onChange={e => postLanguage === "ur" ? setPostEditUr(e.target.value) : setPostEditEn(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn({ background: "#10B981", color: "#fff", border: "none", flex: 1 })} onClick={approveAndBroadcastPost}>✓ Approve &amp; Broadcast to Agents</button>
+            <button style={btn({ flex: 1 })} onClick={rejectPost}>✕ Reject</button>
+          </div>
+        </div>
+      )}
+
+      {!detailAgent && !pendingPost && (
+        <button style={{ ...btn({ fontSize: 12 }), marginBottom: 16 }} onClick={generateTodaysPost} disabled={generatingPost}>
+          {generatingPost ? "Generating…" : "✨ Generate Today's Agent Post"}
+        </button>
+      )}
+
+      {!detailAgent && unnotifiedDeployments.length > 0 && (
+        <div style={{ ...card, border: "1px solid #A7F3D0", background: "#ECFDF5", marginBottom: 16, padding: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: "#065F46", marginBottom: 8 }}>🎉 Deployed Candidates — Thank Their Agent</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {unnotifiedDeployments.map(c => (
+              <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 12 }}>
+                <span><b>{c.name}</b> ({c.trade}) — sourced by {c.agents?.name}</span>
+                <button style={btn({ padding: "4px 10px", fontSize: 11, background: "#10B981", color: "#fff", border: "none" })} onClick={() => notifyAgentOfDeployment(c)}>💬 Notify Agent</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!detailAgent && (
         <>
@@ -220,6 +328,9 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
                           {stats.inProcess > 0 && <span style={{ color: "#D97706" }}>{stats.inProcess} in process</span>}
                           {stats.deployed > 0 && <span style={{ color: "#059669", fontWeight: 600 }}>✓ {stats.deployed} deployed</span>}
                           {stats.last && <span style={{ color: "#9CA3AF" }}>· last submitted {stats.last}</span>}
+                          {profile.role === "admin" && agent.reliability_rating && (
+                            <span style={{ color: "#F59E0B" }}>{"★".repeat(agent.reliability_rating)}{"☆".repeat(5 - agent.reliability_rating)}</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -253,6 +364,14 @@ export default function AgentNetwork({ profile, jobs, addLog }) {
                 <div style={{ fontWeight: 700, fontSize: 18 }}>{detailAgent.name}</div>
                 <div style={{ fontSize: 13, color: "#6B7280", marginTop: 2 }}>{detailAgent.company_name} {detailAgent.city && `· ${detailAgent.city}`} {detailAgent.country && `, ${detailAgent.country}`}</div>
                 {detailAgent.notes && <div style={{ fontSize: 12, color: "#92400E", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px", marginTop: 10 }}>{detailAgent.notes}</div>}
+                {profile.role === "admin" && (
+                  <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 11, color: "#9CA3AF", fontWeight: 600 }}>Internal reliability (admin only):</span>
+                    {[1,2,3,4,5].map(n => (
+                      <span key={n} onClick={() => updateReliability(detailAgent, n)} style={{ cursor: "pointer", fontSize: 16, color: (detailAgent.reliability_rating || 0) >= n ? "#F59E0B" : "#E5E7EB" }}>★</span>
+                    ))}
+                  </div>
+                )}
               </div>
               {detailAgent.whatsapp && (
                 <button style={btn({ background: "#10B981", color: "#fff", border: "none" })} onClick={() => { setSelectedIds(new Set([detailAgent.id])); setDetailAgent(null); setBroadcastOpen(true); }}>
