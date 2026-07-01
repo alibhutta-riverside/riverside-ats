@@ -214,7 +214,7 @@ function AppInner() {
 
   const fetchAll = useCallback(async () => {
     const { data: jobsData } = await supabase.from("job_orders").select("*").order("created_at",{ascending:false});
-    const { data: candsData } = await supabase.from("candidates").select("*").order("added_date",{ascending:false});
+    const { data: candsData } = await supabase.from("candidates").select("*, agents(name)").order("added_date",{ascending:false});
     const { data: logData } = await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(60);
     const { data: posData } = await supabase.from("job_positions").select("*");
     setJobs(jobsData||[]);
@@ -789,17 +789,24 @@ function AppInner() {
               <div style={card}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse"}}>
-                    <thead><tr>{["","Name & Trade","Passport","Job Order","Salary","Stage","Time in Stage","Medical","Visa No.","Actions"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                    <thead><tr>{["","Name & Trade","Passport","Job Order","Source / Agent","Salary","Stage","Time in Stage","Medical","Visa No.","Actions"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
                     <tbody>
                       {visibleCands.length?visibleCands.map(c=>{
                         const job=jobs.find(j=>j.id===c.job_id);
                         const isExp=passportExpiring.find(x=>x.id===c.id);
                         const stageDays=daysSince(c.stage_updated_at);
+                        const agentName=c.agents?.name||null;
+                        const sourceLabel=agentName?agentName:(c.source&&c.source.trim()?c.source.trim():"Direct / Riverside");
+                        const isAgent=!!agentName;
                         return <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
                           <td style={td}><Avatar url={c.photo_url} name={c.name}/></td>
                           <td style={td}><div style={{fontWeight:600,color:"#111827"}}>{c.name}</div><div style={{fontSize:12,color:"#6B7280"}}>{c.trade}</div>{c.status_note && <div style={{fontSize:10,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"2px 5px",marginTop:3,display:"inline-block"}}>⚠ {c.status_note}</div>}</td>
                           <td style={td}><div style={{fontFamily:"monospace",fontSize:12}}>{c.passport||"—"}</div><div style={{fontSize:11,color:isExp?"#EF4444":"#9CA3AF"}}>{fmtDate(c.passport_expiry)}</div></td>
                           <td style={td}><div style={{fontSize:12,fontWeight:500}}>{job?job.ref:"—"}</div><div style={{fontSize:11,color:"#6B7280"}}>{job?job.client:""}</div></td>
+                          <td style={td}>
+                            <div style={{fontSize:12,fontWeight:isAgent?600:400,color:isAgent?"#4338CA":"#6B7280"}}>{sourceLabel}</div>
+                            {isAgent&&<div style={{fontSize:10,color:"#6366F1",background:"#EEF2FF",borderRadius:4,padding:"1px 5px",marginTop:2,display:"inline-block"}}>🤝 Agent</div>}
+                          </td>
                           <td style={td}>
                             <div style={{fontSize:12,fontWeight:600,color:c.offered_salary?"#059669":"#6B7280"}}>{c.offered_salary || job?.salary || "—"}</div>
                             {c.offered_salary && job?.salary && c.offered_salary!==job.salary && <div style={{fontSize:10,color:"#9CA3AF"}}>job default: {job.salary}</div>}

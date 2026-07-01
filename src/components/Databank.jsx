@@ -43,7 +43,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
     const matchesTrade = !tradeFilter || c.trade===tradeFilter;
     const matchesExp = !experienceFilter || c.experience===experienceFilter;
     const matchesNat = !nationalityFilter || c.nationality===nationalityFilter;
-    const matchesSource = !sourceFilter || c.source===sourceFilter;
+    const matchesSource = !sourceFilter || (sourceFilter==="__agent__" ? !!c.agent_id : c.source===sourceFilter);
     const matchesGcc = !gccFilter || (gccFilter==="yes" ? c.has_gcc_experience : !c.has_gcc_experience);
     const matchesLicense = !licenseFilter || c.driving_license_type===licenseFilter;
     return matchesSearch && matchesTrade && matchesExp && matchesNat && matchesSource && matchesGcc && matchesLicense;
@@ -527,6 +527,7 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
         </select>
         <select style={{ ...inp, width:"auto" }} value={sourceFilter} onChange={e=>setSourceFilter(e.target.value)}>
           <option value="">All sources</option>
+          <option value="__agent__">🤝 Via Agent Network</option>
           {sources.map(s=><option key={s}>{s}</option>)}
         </select>
         <select style={{ ...inp, width:"auto", borderColor:"#A7F3D0" }} value={gccFilter} onChange={e=>setGccFilter(e.target.value)}>
@@ -603,7 +604,15 @@ export default function Databank({ candidates, jobs, profile, onRefresh, addLog,
                       ? <span style={{ fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:20, background: c.driving_license_status==="Valid" ? "#DBEAFE" : "#FEF3C7", color: c.driving_license_status==="Valid" ? "#1E3A8A" : "#92400E" }}>{c.driving_license_type} {c.driving_license_status?`(${c.driving_license_status})`:""}</span>
                       : <span style={{ fontSize:11, color:"#D1D5DB" }}>—</span>}
                   </td>
-                  <td style={{ ...S.td, fontSize:12 }}>{c.source||"—"}</td>
+                  <td style={{ ...S.td, fontSize:12 }}>
+                    {c.agents?.name
+                      ? <div>
+                          <div style={{fontSize:12,fontWeight:600,color:"#4338CA"}}>{c.agents.name}</div>
+                          <div style={{fontSize:10,color:"#6366F1",background:"#EEF2FF",borderRadius:4,padding:"1px 5px",marginTop:2,display:"inline-block"}}>🤝 Agent</div>
+                        </div>
+                      : <span style={{color:"#6B7280"}}>{c.source||"—"}</span>
+                    }
+                  </td>
                   <td style={S.td}>
                     <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                       <button style={btn({ padding:"4px 9px", fontSize:11, color:"#4338CA", borderColor:"#C7D2FE" })} onClick={()=>openView(c)}>View</button>
