@@ -502,7 +502,33 @@ function AppInner() {
   const totalActive = assignedCands.filter(c=>!["deployed","rejected"].includes(c.stage)).length;
   const passportExpired = visibleCandsAll.filter(c=>{ const d=daysUntil(c.passport_expiry); return d!==null && d<0; });
   const passportExpiring = visibleCandsAll.filter(c=>{ const d=daysUntil(c.passport_expiry); return d!==null && d>=0 && d<90; });
-  const medicalExpiring = visibleCandsAll.filter(c=>{ const d=daysUntil(c.medical_expiry); return d!==null && d<30 && d>=0; });
+
+  // Medical expiry: use explicit medical_expiry if set, otherwise calculate 60 days from medical_date
+  const getMedicalExpiryDays = (c) => {
+    if (c.medical_expiry) return daysUntil(c.medical_expiry);
+    if (c.medical_date && (c.medical_status === "Pass" || c.medical_status === "Yes")) {
+      const expiry = new Date(new Date(c.medical_date).getTime() + 60 * 86400000);
+      return Math.floor((expiry - new Date()) / 86400000);
+    }
+    return null;
+  };
+
+  const medicalExpired = visibleCandsAll.filter(c => {
+    const d = getMedicalExpiryDays(c);
+    return d !== null && d < 0 && !["databank","deployed","rejected"].includes(c.stage);
+  });
+  const medicalExpiring = visibleCandsAll.filter(c => {
+    const d = getMedicalExpiryDays(c);
+    return d !== null && d >= 0 && d <= 21 && !["databank","deployed","rejected"].includes(c.stage);
+  });
+
+  // Candidates in stages at or after medical with NO medical data entered at all
+  const STAGES_REQUIRING_MEDICAL = ["medical","tradetest","ppsubmit","ppdispatch","ppreceived","stamping","beoe","flight","visaauth","visano","evisa"];
+  const medicalMissing = visibleCandsAll.filter(c =>
+    STAGES_REQUIRING_MEDICAL.includes(c.stage) &&
+    !c.medical_date &&
+    c.job_id
+  );
 
   // ── STYLE TOKENS ──
   const inp = {padding:"8px 11px",border:"1px solid #E5E7EB",borderRadius:8,fontSize:13,width:"100%",color:"#111827",background:"#fff",fontFamily:"inherit",outline:"none"};
@@ -623,46 +649,84 @@ function AppInner() {
                 <StatCard label="Open Job Orders" value={visibleJobs.filter(j=>j.status==="Open").length} sub="Active demands" accent="#3B82F6"/>
               </div>
 
-              {(passportExpired.length>0 || passportExpiring.length>0 || medicalExpiring.length>0) && (
+              {(passportExpired.length>0||passportExpiring.length>0||medicalExpired.length>0||medicalExpiring.length>0||medicalMissing.length>0)&&(
                 <div style={{...card,border:"1px solid #FEE2E2",marginBottom:16}}>
-                  <div style={{padding:"12px 18px",background:"#FEF2F2",borderBottom:"1px solid #FEE2E2",fontWeight:700,fontSize:13,color:"#991B1B"}}>⚠ Expiry Alerts</div>
+                  <div style={{padding:"12px 18px",background:"#FEF2F2",borderBottom:"1px solid #FEE2E2",fontWeight:700,fontSize:13,color:"#991B1B"}}>⚠ Expiry & Medical Alerts</div>
                   <div style={{padding:16}}>
-                    {passportExpired.length>0 && <>
+
+                    {medicalExpired.length>0&&<>
+                      <div style={{fontSize:12,fontWeight:700,color:"#7F1D1D",marginBottom:8}}>🚨 Medical ALREADY EXPIRED — visa cannot be stamped ({medicalExpired.length})</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:16}}>
+                        {medicalExpired.map(c=>{
+                          const d=getMedicalExpiryDays(c);
+                          const exp=c.medical_expiry||(c.medical_date?new Date(new Date(c.medical_date).getTime()+60*86400000).toISOString().slice(0,10):null);
+                          const job=visibleJobs.find(j=>j.id===c.job_id);
+                          return(<div key={c.id} style={{background:"#FEE2E2",border:"2px solid #DC2626",borderRadius:8,padding:"10px 14px",cursor:"pointer",minWidth:160}} onClick={()=>{setDetailId(c.id);setDtab("process");}}>
+                            <div style={{fontWeight:700,fontSize:13}}>{c.name}</div>
+                            <div style={{fontSize:11,color:"#6B7280"}}>{c.trade} · {job?.client}</div>
+                            <div style={{fontSize:12,color:"#7F1D1D",fontWeight:700,marginTop:4}}>Expired {Math.abs(d)} day{Math.abs(d)!==1?"s":""} ago</div>
+                            {exp&&<div style={{fontSize:11,color:"#991B1B"}}>Was: {fmtDate(exp)}</div>}
+                          </div>);
+                        })}
+                      </div>
+                    </>}
+
+                    {medicalExpiring.length>0&&<>
+                      <div style={{fontSize:12,fontWeight:700,color:"#92400E",marginBottom:8}}>🔴 Medical expiring within 21 days — URGENT ({medicalExpiring.length})</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:16}}>
+                        {[...medicalExpiring].sort((a,b)=>(getMedicalExpiryDays(a)||99)-(getMedicalExpiryDays(b)||99)).map(c=>{
+                          const d=getMedicalExpiryDays(c);
+                          const exp=c.medical_expiry||(c.medical_date?new Date(new Date(c.medical_date).getTime()+60*86400000).toISOString().slice(0,10):null);
+                          const job=visibleJobs.find(j=>j.id===c.job_id);
+                          const hot=d<=7;
+                          return(<div key={c.id} style={{background:hot?"#FEF2F2":"#FFFBEB",border:`2px solid ${hot?"#EF4444":"#F59E0B"}`,borderRadius:8,padding:"10px 14px",cursor:"pointer",minWidth:160}} onClick={()=>{setDetailId(c.id);setDtab("process");}}>
+                            <div style={{fontWeight:700,fontSize:13}}>{c.name}</div>
+                            <div style={{fontSize:11,color:"#6B7280"}}>{c.trade} · {job?.client}</div>
+                            <div style={{fontSize:12,color:hot?"#DC2626":"#B45309",fontWeight:700,marginTop:4}}>{d} day{d!==1?"s":""} left{hot?" — ACT NOW":""}</div>
+                            {exp&&<div style={{fontSize:11,color:"#92400E"}}>Expires: {fmtDate(exp)}</div>}
+                          </div>);
+                        })}
+                      </div>
+                    </>}
+
+                    {medicalMissing.length>0&&<>
+                      <div style={{fontSize:12,fontWeight:600,color:"#1D4ED8",marginBottom:4}}>⚠ Medical date missing — enter now so expiry tracking works ({medicalMissing.length})</div>
+                      <div style={{fontSize:11,color:"#1D4ED8",background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:6,padding:"6px 10px",marginBottom:8}}>These candidates are at or past Medical stage but no date is recorded. Click any card to open and enter the medical date immediately.</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
+                        {medicalMissing.map(c=>{
+                          const job=visibleJobs.find(j=>j.id===c.job_id);
+                          return(<div key={c.id} style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,padding:"8px 12px",cursor:"pointer"}} onClick={()=>{setModal("editCand");const found=cands.find(x=>x.id===c.id);if(found){setCf({...EMPTY_CAND,...found});setEditId(c.id);}}}>
+                            <div style={{fontWeight:600,fontSize:12}}>{c.name}</div>
+                            <div style={{fontSize:11,color:"#6B7280"}}>{STAGE_MAP[c.stage]?.label} · {job?.client}</div>
+                            <div style={{fontSize:11,color:"#1D4ED8",fontWeight:600}}>Tap to enter medical date →</div>
+                          </div>);
+                        })}
+                      </div>
+                    </>}
+
+                    {passportExpired.length>0&&<>
                       <div style={{fontSize:12,fontWeight:700,color:"#7F1D1D",marginBottom:8}}>🚨 Passport ALREADY EXPIRED ({passportExpired.length})</div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:(passportExpiring.length||medicalExpiring.length)?16:0}}>
-                        {passportExpired.map(c=>(
-                          <div key={c.id} style={{background:"#FEE2E2",border:"1.5px solid #DC2626",borderRadius:8,padding:"8px 14px",cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
-                            <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
-                            <div style={{fontSize:12,color:"#7F1D1D",fontWeight:600}}>Expired: {fmtDate(c.passport_expiry)}</div>
-                          </div>
-                        ))}
+                      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:passportExpiring.length?16:0}}>
+                        {passportExpired.map(c=>(<div key={c.id} style={{background:"#FEE2E2",border:"1.5px solid #DC2626",borderRadius:8,padding:"8px 14px",cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
+                          <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
+                          <div style={{fontSize:12,color:"#7F1D1D",fontWeight:600}}>Expired: {fmtDate(c.passport_expiry)}</div>
+                        </div>))}
                       </div>
                     </>}
-                    {passportExpiring.length>0 && <>
+                    {passportExpiring.length>0&&<>
                       <div style={{fontSize:12,fontWeight:600,color:"#991B1B",marginBottom:8}}>Passport expiring within 90 days ({passportExpiring.length})</div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:medicalExpiring.length?16:0}}>
-                        {passportExpiring.map(c=>(
-                          <div key={c.id} style={{background:"#FEF2F2",border:"1px solid #FEE2E2",borderRadius:8,padding:"8px 14px",cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
-                            <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
-                            <div style={{fontSize:12,color:"#DC2626"}}>Expires: {fmtDate(c.passport_expiry)}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </>}
-                    {medicalExpiring.length>0 && <>
-                      <div style={{fontSize:12,fontWeight:600,color:"#92400E",marginBottom:8}}>Medical clearance expiring within 30 days ({medicalExpiring.length})</div>
                       <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
-                        {medicalExpiring.map(c=>(
-                          <div key={c.id} style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("process");}}>
-                            <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
-                            <div style={{fontSize:12,color:"#B45309"}}>Medical expires: {fmtDate(c.medical_expiry)}</div>
-                          </div>
-                        ))}
+                        {passportExpiring.map(c=>(<div key={c.id} style={{background:"#FEF2F2",border:"1px solid #FEE2E2",borderRadius:8,padding:"8px 14px",cursor:"pointer"}} onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
+                          <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
+                          <div style={{fontSize:12,color:"#DC2626"}}>Expires: {fmtDate(c.passport_expiry)}</div>
+                        </div>))}
                       </div>
                     </>}
                   </div>
                 </div>
               )}
+
+
 
               <div className="dash-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                 <div style={card}>
