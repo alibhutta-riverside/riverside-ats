@@ -186,15 +186,18 @@ function AppInner() {
   const [stageFil, setStageFil] = useState("");
   const [jobFil, setJobFil] = useState("");
   const [detailId, setDetailId] = useState(null);
-  const [crmView, setCrmView] = useState("dashboard"); // 'dashboard' | 'clients' | 'campaigns'
+  const [crmView, setCrmView] = useState("dashboard");
   const [crmClientId, setCrmClientId] = useState(null);
   const [dtab, setDtab] = useState("overview");
   const [rptJob, setRptJob] = useState("");
   const [waText, setWaText] = useState("");
   const [copied, setCopied] = useState(false);
   const [storageUsage, setStorageUsage] = useState(null);
-  const [staffList, setStaffList] = useState([]);
-  const [stageSlas, setStageSlas] = useState([]);
+
+  // Stage transition accountability modal
+  const [stageModal, setStageModal] = useState(null); // { candidateId, fromStage, toStage }
+  const [stageForm, setStageForm] = useState({ action_date: "", note: "", stage_data: {} });
+  const [stageLogs, setStageLogs] = useState([]); // for the Timeline tab
 
   // ── AUTH ──
   useEffect(() => {
@@ -214,14 +217,10 @@ function AppInner() {
     const { data: candsData } = await supabase.from("candidates").select("*").order("added_date",{ascending:false});
     const { data: logData } = await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(60);
     const { data: posData } = await supabase.from("job_positions").select("*");
-    const { data: staffData } = await supabase.from("profiles").select("id, full_name");
-    const { data: slaData } = await supabase.from("pipeline_stage_slas").select("*");
     setJobs(jobsData||[]);
     setCands(candsData||[]);
     setPositions(posData||[]);
     setLog((logData||[]).map(l=>({ msg:l.message, time:new Date(l.created_at).toLocaleDateString("en-GB") })));
-    setStaffList(staffData||[]);
-    setStageSlas(slaData||[]);
   }, []);
 
   useEffect(() => { if (session) fetchAll(); }, [session, fetchAll]);
@@ -385,13 +384,98 @@ function AppInner() {
     fetchAll();
   };
   
-  const moveStage = async (cid, sid) => {
-    const { error } = await supabase.from("candidates").update({ stage: sid, stage_updated_at: new Date().toISOString() }).eq("id", cid);
-    if (error) { alert(error.message); return; }
-    const c = cands.find(x=>x.id===cid);
-    addLog(`${c?.name} → ${STAGE_MAP[sid]?.label}`);
-    fetchAll();
+  // Stage-specific required/suggested fields — what your team must capture at each stage.
+  const STAGE_REQUIREMENTS = {
+    shortlist:   { label: "Shortlisted", fields: [], hint: "Note why this candidate is being shortlisted for this order." },
+    interview:   { label: "Interviews",  fields: [], hint: "Note the interview date, format (in-person/video), and outcome." },
+    offer:       { label: "Offer Letter", fields: [{ key: "offer_ref", label: "Offer Letter Reference #" }], hint: "Record when the offer was issued and any conditions." },
+    contract:    { label: "Contract Signed", fields: [{ key: "contract_date", label: "Contract Signed Date", type: "date" }], hint: "Record when the candidate signed the contract." },
+    visaauth:    { label: "Visa Authorisation", fields: [{ key: "visa_auth_ref", label: "Authorisation Reference / File #" }], hint: "When was the visa file submitted and what reference was given?" },
+    evisa:       { label: "Electronic No.", fields: [{ key: "electronic_no", label: "Electronic / Muqeem Number", required: true }, { key: "evisa_date", label: "Date Received", type: "date", required: true }], hint: "Record the actual Electronic / Muqeem / MOFA number and the date it was received." },
+    visano:      { label: "Visa No. Issued", fields: [{ key: "visa_no", label: "Visa Number", required: true }, { key: "visa_issue_date", label: "Visa Issue Date", type: "date", required: true }], hint: "The actual visa number as it appears on the documents." },
+    medical:     { label: "Medical (GAMCA)", fields: [{ key: "medical_date", label: "Medical Attendance Date", type: "date", required: true }, { key: "medical_result", label: "Result", type: "select", options: ["", "Pass", "Fail", "Pending", "Unfit"], required: true }], hint: "Record the GAMCA appointment date and the result. If Unfit, explain in note." },
+    tradetest:   { label: "Trade Test (Takamol)", fields: [{ key: "trade_test_date", label: "Trade Test Date", type: "date", required: true }, { key: "trade_test_result", label: "Result", type: "select", options: ["", "Pass", "Fail", "Pending", "Exempted"], required: true }], hint: "Record the Takamol test date and result." },
+    ppsubmit:    { label: "Passport Submission", fields: [{ key: "pp_sub_date", label: "Passport Submission Date", type: "date", required: true }, { key: "pp_sub_status", label: "Status", type: "select", options: ["", "Submitted to Embassy", "Submitted to Agent", "Under Processing"] }], hint: "When was the passport submitted and to whom?" },
+    ppdispatch:  { label: "Passport Dispatched", fields: [{ key: "pp_dispatch_date", label: "Dispatch Date", type: "date", required: true }], hint: "When was the passport dispatched? Include courier tracking if available." },
+    ppreceived:  { label: "Received by Embassy", fields: [{ key: "pp_received_date", label: "Date Received by Embassy", type: "date", required: true }], hint: "Confirm the embassy received the passport." },
+    stamping:    { label: "Visa Stamping", fields: [{ key: "stamping_date", label: "Stamping Date", type: "date", required: true }], hint: "The visa stamp date on the passport." },
+    beoe:        { label: "BEOE / Protector", fields: [{ key: "beoe_status", label: "BEOE Status", type: "select", options: ["", "Applied", "Approved", "Rejected"] }, { key: "beoe_permission_no", label: "Permission / Protector No." }], hint: "Record BEOE application status and any reference numbers." },
+    flight:      { label: "Flight Booking", fields: [{ key: "flight_date", label: "Flight Date", type: "date", required: true }, { key: "flight_details", label: "Flight No. / Airline" }], hint: "Record the actual flight date and airline/flight number." },
+    deployed:    { label: "Deployed ✓", fields: [{ key: "deployment_date", label: "Deployment Date", type: "date", required: true }], hint: "Confirm the candidate has actually arrived and started work. This is the final stage." },
+    rejected:    { label: "Rejected / Cancelled", fields: [{ key: "rejection_reason", label: "Reason for Rejection / Cancellation", required: true }], hint: "Be specific — client rejected, candidate withdrew, visa refused, etc." },
   };
+
+  // Called every time a stage button is clicked — intercepts the move and shows
+  // the mandatory accountability modal before anything is saved.
+  const initiateMoveStage = (cid, newStageId) => {
+    const c = cands.find(x => x.id === cid);
+    const today = new Date().toISOString().slice(0, 10);
+    setStageModal({ candidateId: cid, fromStage: c?.stage || "databank", toStage: newStageId, candidateName: c?.name });
+    setStageForm({ action_date: today, note: "", stage_data: {} });
+  };
+
+  const confirmMoveStage = async () => {
+    if (!stageModal) return;
+    const req = STAGE_REQUIREMENTS[stageModal.toStage];
+    if (!stageForm.note.trim()) { alert("A note is required — briefly explain what happened or who instructed this move."); return; }
+    if (!stageForm.action_date) { alert("The real-world date is required."); return; }
+
+    // Check required stage-specific fields
+    for (const f of req?.fields || []) {
+      if (f.required && !stageForm.stage_data[f.key]) {
+        alert(`"${f.label}" is required before moving to ${req?.label}.`); return;
+      }
+    }
+
+    // Build candidate field updates from stage-specific data
+    const candUpdate: Record<string, unknown> = { stage: stageModal.toStage, stage_updated_at: new Date().toISOString() };
+    const sd = stageForm.stage_data;
+    if (sd.electronic_no) candUpdate.electronic_no = sd.electronic_no;
+    if (sd.visa_no) candUpdate.visa_no = sd.visa_no;
+    if (sd.visa_issue_date) candUpdate.visa_issue_date = sd.visa_issue_date;
+    if (sd.visa_auth_ref) candUpdate.visa_auth_date = stageForm.action_date;
+    if (sd.medical_date) candUpdate.medical_date = sd.medical_date;
+    if (sd.medical_result) candUpdate.medical_status = sd.medical_result;
+    if (sd.trade_test_date) candUpdate.trade_test_date = sd.trade_test_date;
+    if (sd.trade_test_result) candUpdate.trade_test_status = sd.trade_test_result;
+    if (sd.pp_sub_date) candUpdate.pp_sub_date = sd.pp_sub_date;
+    if (sd.pp_sub_status) candUpdate.pp_sub_status = sd.pp_sub_status;
+    if (sd.pp_dispatch_date) candUpdate.pp_dispatch_date = sd.pp_dispatch_date;
+    if (sd.pp_received_date) candUpdate.pp_received_date = sd.pp_received_date;
+    if (sd.stamping_date) candUpdate.stamping_date = sd.stamping_date;
+    if (sd.flight_date) candUpdate.flight_date = sd.flight_date;
+    if (sd.beoe_status) candUpdate.beoe_status = sd.beoe_status;
+    if (sd.beoe_permission_no) candUpdate.beoe_permission_no = sd.beoe_permission_no;
+
+    const { error } = await supabase.from("candidates").update(candUpdate).eq("id", stageModal.candidateId);
+    if (error) { alert(error.message); return; }
+
+    await supabase.from("candidate_stage_logs").insert({
+      candidate_id: stageModal.candidateId,
+      from_stage: stageModal.fromStage,
+      to_stage: stageModal.toStage,
+      actioned_by: profile.id,
+      actioned_at: new Date().toISOString(),
+      action_date: stageForm.action_date,
+      note: stageForm.note,
+      stage_data: Object.keys(stageForm.stage_data).length > 0 ? stageForm.stage_data : null,
+    });
+
+    addLog(`${stageModal.candidateName} → ${STAGE_MAP[stageModal.toStage]?.label} (${stageForm.note.slice(0, 60)})`);
+    setStageModal(null);
+    fetchAll();
+    // If timeline is open, refresh it
+    if (detailId === stageModal.candidateId && dtab === "timeline") loadStageLogs(stageModal.candidateId);
+  };
+
+  const loadStageLogs = async (candidateId) => {
+    const { data } = await supabase.from("candidate_stage_logs").select("*, team_members(full_name)").eq("candidate_id", candidateId).order("actioned_at", { ascending: false });
+    setStageLogs(data ?? []);
+  };
+
+  // Keep the old moveStage name as a fallback for any non-intercepted calls
+  const moveStage = initiateMoveStage;
+
 
   // Helpers for the stage-timeline feature: how long has this candidate sat at their current stage,
   // and how long since they first entered the pipeline overall.
@@ -400,22 +484,7 @@ function AppInner() {
     const diff = Date.now() - new Date(dateStr).getTime();
     return Math.max(0, Math.floor(diff / 86400000));
   };
-  // Per-stage SLA lookup (falls back to a generic 3/7 day rule if a stage
-  // has no configured target, e.g. before pipeline_stage_slas is seeded).
-  const slaFor = (stageId) => stageSlas.find(s=>s.stage===stageId);
-  const stageDurationColor = (days, stageId) => {
-    if (days === null) return "#9CA3AF";
-    const sla = stageId ? slaFor(stageId) : null;
-    const target = sla?.target_days ?? 3;
-    if (days <= target) return "#10B981";
-    if (days <= target * 1.5) return "#F59E0B";
-    return "#EF4444";
-  };
-  // Resolves stage_owner_ids -> readable names, e.g. "Zaheer Ashraf & Waqar Arif"
-  const ownerNames = (ownerIds) => {
-    if (!ownerIds || !ownerIds.length) return null;
-    return ownerIds.map(id => staffList.find(s=>s.id===id)?.full_name || "Unknown").join(" & ");
-  };
+  const stageDurationColor = (days) => days === null ? "#9CA3AF" : days <= 3 ? "#10B981" : days <= 7 ? "#F59E0B" : "#EF4444";
 
   const dc = detailId ? cands.find(c=>c.id===detailId) : null;
   const djob = dc ? jobs.find(j=>j.id===dc.job_id) : null;
@@ -672,7 +741,7 @@ function AppInner() {
                             {c.offered_salary && job?.salary && c.offered_salary!==job.salary && <div style={{fontSize:10,color:"#9CA3AF"}}>job default: {job.salary}</div>}
                           </td>
                           <td style={td}><StagePill stageId={c.stage}/></td>
-                          <td style={td}><span style={{fontSize:12,fontWeight:700,color:stageDurationColor(stageDays,c.stage)}}>{stageDays===null?"—":`${stageDays} day${stageDays!==1?"s":""}`}</span></td>
+                          <td style={td}><span style={{fontSize:12,fontWeight:700,color:stageDurationColor(stageDays)}}>{stageDays===null?"—":`${stageDays} day${stageDays!==1?"s":""}`}</span></td>
                           <td style={td}><Dot val={c.medical_status}/></td>
                           <td style={{...td,fontFamily:"monospace",fontSize:12}}>{c.visa_no||"—"}</td>
                           <td style={td} onClick={e=>e.stopPropagation()}>
@@ -691,33 +760,17 @@ function AppInner() {
           )}
 
           {/* ══ PIPELINE ══ */}
-          {page==="pipeline"&&(()=>{
-            const pipelineCands = assignedCands.filter(c=>!["deployed","rejected"].includes(c.stage));
-            let overdueCount=0, atRiskCount=0;
-            pipelineCands.forEach(c=>{
-              const d = daysSince(c.stage_updated_at);
-              if (d===null) return;
-              const target = slaFor(c.stage)?.target_days ?? 3;
-              if (d > target*1.5) overdueCount++;
-              else if (d > target) atRiskCount++;
-            });
-            return (
+          {page==="pipeline"&&(
             <div>
               <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
                 <select style={{...inp,width:"auto",minWidth:260,marginBottom:0}} value={jobFil} onChange={e=>setJobFil(e.target.value)}>
                   <option value="">All job orders (combined view)</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} — {[j.position, ...positions.filter(p=>p.job_id===j.id).map(p=>p.position_name)].filter(Boolean).join(", ")}</option>)}
                 </select>
-                <div style={{display:"flex",gap:14,fontSize:11,color:"#6B7280",alignItems:"center",flexWrap:"wrap"}}>
-                  {(overdueCount>0||atRiskCount>0) && (
-                    <div style={{display:"flex",gap:8}}>
-                      {overdueCount>0 && <span style={{background:"#FEE2E2",color:"#B91C1C",fontWeight:700,borderRadius:20,padding:"3px 10px",fontSize:11}}>⚠ {overdueCount} overdue</span>}
-                      {atRiskCount>0 && <span style={{background:"#FEF3C7",color:"#92400E",fontWeight:700,borderRadius:20,padding:"3px 10px",fontSize:11}}>{atRiskCount} at risk</span>}
-                    </div>
-                  )}
-                  <span style={{fontWeight:600}}>Time at stage vs. SLA target:</span>
-                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#10B981"}}/>On track</span>
-                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#F59E0B"}}/>At risk</span>
-                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#EF4444"}}/>Overdue</span>
+                <div style={{display:"flex",gap:12,fontSize:11,color:"#6B7280",alignItems:"center"}}>
+                  <span style={{fontWeight:600}}>Time at current stage:</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#10B981"}}/>0-3 days</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#F59E0B"}}/>4-7 days</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#EF4444"}}/>7+ days</span>
                 </div>
               </div>
               {(jobFil?visibleJobs.filter(j=>j.id===jobFil):visibleJobs).map(j=>{
@@ -742,7 +795,6 @@ function AppInner() {
                           </div>
                           {sc.map(c=>{
                             const days = daysSince(c.stage_updated_at);
-                            const owners = ownerNames(c.stage_owner_ids);
                             return (
                             <div key={c.id} style={{background:"#fff",border:`1px solid ${s.color}30`,borderLeft:`3px solid ${s.color}`,borderRadius:8,padding:"9px 11px",marginBottom:7,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}
                               onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
@@ -751,9 +803,8 @@ function AppInner() {
                                   <Avatar url={c.photo_url} name={c.name} size={28}/>
                                   <div><div style={{fontWeight:600,fontSize:12,color:"#111827"}}>{c.name}</div><div style={{fontSize:11,color:"#6B7280"}}>{c.trade}</div></div>
                                 </div>
-                                <span style={{fontSize:10,fontWeight:700,color:stageDurationColor(days,c.stage),whiteSpace:"nowrap",flexShrink:0}}>{days===null?"—":`${days}d`}</span>
+                                <span style={{fontSize:10,fontWeight:700,color:stageDurationColor(days),whiteSpace:"nowrap",flexShrink:0}}>{days===null?"—":`${days}d`}</span>
                               </div>
-                              {owners && <div style={{fontSize:10,color:"#6366F1",marginTop:5,display:"flex",alignItems:"center",gap:3}}><span>👤</span>{owners}</div>}
                               {c.status_note && <div style={{fontSize:10,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"3px 6px",marginTop:6}}>⚠ {c.status_note}</div>}
                             </div>
                           );})}
@@ -764,8 +815,7 @@ function AppInner() {
                 </div>;
               })}
             </div>
-            );
-          })()}
+          )}
 
           {/* ══ JOB ORDERS ══ */}
           {page==="jobs"&&(
@@ -910,8 +960,8 @@ function AppInner() {
                 <button style={btn({padding:"6px 10px",fontSize:12,flexShrink:0})} onClick={()=>setDetailId(null)}>✕</button>
               </div>
               <div style={{display:"flex",gap:6,marginTop:12,flexWrap:"wrap"}}>
-                {["overview","process","documents","stage","notes"].map(t=>(
-                  <button key={t} style={{...btn({padding:"5px 10px",fontSize:11}),background:dtab===t?"#EEF2FF":"#fff",color:dtab===t?"#6366F1":"#6B7280",borderColor:dtab===t?"#C7D2FE":"#E5E7EB",fontWeight:dtab===t?600:400,flex:1}} onClick={()=>setDtab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
+                {["overview","process","documents","stage","notes","timeline"].map(t=>(
+                  <button key={t} style={{...btn({padding:"5px 10px",fontSize:11}),background:dtab===t?"#EEF2FF":"#fff",color:dtab===t?"#6366F1":"#6B7280",borderColor:dtab===t?"#C7D2FE":"#E5E7EB",fontWeight:dtab===t?600:400,flex:1}} onClick={()=>{setDtab(t);if(t==="timeline"&&detailId) loadStageLogs(detailId);}}>{t==="timeline"?"📋 Timeline":t.charAt(0).toUpperCase()+t.slice(1)}</button>
                 ))}
               </div>
             </div>
@@ -940,8 +990,7 @@ function AppInner() {
                       </div>
                       <div>
                         <div style={{fontSize:10,color:"#9CA3AF"}}>At current stage since</div>
-                        <div style={{fontSize:13,fontWeight:700,color:stageDurationColor(daysSince(dc.stage_updated_at),dc.stage)}}>{fmtDate(dc.stage_updated_at)} ({daysSince(dc.stage_updated_at)} days)</div>
-                        {ownerNames(dc.stage_owner_ids) && <div style={{fontSize:11,color:"#6366F1",marginTop:3}}>👤 {ownerNames(dc.stage_owner_ids)}</div>}
+                        <div style={{fontSize:13,fontWeight:700,color:stageDurationColor(daysSince(dc.stage_updated_at))}}>{fmtDate(dc.stage_updated_at)} ({daysSince(dc.stage_updated_at)} days)</div>
                       </div>
                     </div>
                     <div style={{fontSize:10,color:"#9CA3AF",marginBottom:4}}>Estimated completion date (shown to client in reports)</div>
@@ -1000,12 +1049,100 @@ function AppInner() {
                   <textarea defaultValue={dc.objection||""} onBlur={async e=>{ await supabase.from("candidates").update({objection:e.target.value}).eq("id",dc.id); fetchAll(); }} style={{...inp,minHeight:60,resize:"vertical",borderColor:"#FEE2E2",fontSize:12}} />
                 </div>
               )}
+
+              {/* ══ TIMELINE TAB ══ */}
+              {dtab==="timeline"&&(
+                <div>
+                  <div style={{background:"#EEF2FF",border:"1px solid #C7D2FE",borderRadius:10,padding:"10px 14px",marginBottom:16,fontSize:12,color:"#3730A3"}}>
+                    📋 Every stage transition for this candidate — who moved them, when, what was captured. This is your accountability trail.
+                  </div>
+                  {stageLogs.length===0 ? (
+                    <div style={{color:"#9CA3AF",textAlign:"center",padding:30,fontSize:13}}>No stage history yet. History is recorded from here on every time a stage is changed.</div>
+                  ) : (
+                    <div style={{position:"relative"}}>
+                      <div style={{position:"absolute",left:19,top:0,bottom:0,width:2,background:"#E5E7EB"}}/>
+                      {stageLogs.map((log,i)=>{
+                        const toStage = STAGE_MAP[log.to_stage];
+                        return (
+                          <div key={log.id} style={{display:"flex",gap:14,marginBottom:20,position:"relative"}}>
+                            <div style={{width:20,height:20,borderRadius:"50%",background:toStage?.color||"#9CA3AF",border:"3px solid #fff",boxShadow:"0 0 0 2px "+(toStage?.color||"#9CA3AF"),flexShrink:0,marginTop:2,zIndex:1}}/>
+                            <div style={{flex:1,background:"#fff",border:"1px solid #E5E7EB",borderRadius:10,padding:"10px 14px"}}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
+                                <div style={{fontWeight:700,fontSize:13,color:toStage?.color||"#374151"}}>{toStage?.label||log.to_stage}</div>
+                                <div style={{fontSize:11,color:"#9CA3AF",flexShrink:0}}>{new Date(log.actioned_at).toLocaleString()}</div>
+                              </div>
+                              {log.from_stage && <div style={{fontSize:11,color:"#9CA3AF",marginBottom:6}}>from: {STAGE_MAP[log.from_stage]?.label||log.from_stage}</div>}
+                              {log.action_date && <div style={{fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>📅 Event date: {log.action_date}</div>}
+                              <div style={{fontSize:12,color:"#1F2937",background:"#F9FAFB",borderRadius:6,padding:"6px 10px",marginBottom:log.stage_data?8:0}}>{log.note}</div>
+                              {log.stage_data && Object.keys(log.stage_data).length > 0 && (
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
+                                  {Object.entries(log.stage_data).map(([k,v])=>v?(
+                                    <div key={k} style={{background:"#F0FDF4",borderRadius:6,padding:"4px 8px",fontSize:11}}>
+                                      <span style={{color:"#6B7280",textTransform:"capitalize"}}>{k.replace(/_/g," ")}: </span>
+                                      <span style={{fontWeight:600,color:"#065F46"}}>{String(v)}</span>
+                                    </div>
+                                  ):null)}
+                                </div>
+                              )}
+                              <div style={{fontSize:11,color:"#6366F1",marginTop:6,fontWeight:600}}>by {log.team_members?.full_name||"Unknown"}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ══ CANDIDATE MODAL ══ */}
+      {/* ══ STAGE TRANSITION MANDATORY MODAL ══ */}
+      {stageModal&&(()=>{
+        const req=STAGE_REQUIREMENTS[stageModal.toStage]||{label:STAGE_MAP[stageModal.toStage]?.label,fields:[],hint:""};
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div style={{background:"#fff",borderRadius:16,width:520,maxHeight:"88vh",overflowY:"auto"}}>
+              <div style={{padding:"18px 22px",borderBottom:"1px solid #F3F4F6",position:"sticky",top:0,background:"#fff",zIndex:1}}>
+                <div style={{fontWeight:700,fontSize:15}}>Moving to: <span style={{color:STAGE_MAP[stageModal.toStage]?.color||"#6366F1"}}>{req.label}</span></div>
+                <div style={{fontSize:13,color:"#6B7280",marginTop:2}}>{stageModal.candidateName}</div>
+                {req.hint&&<div style={{fontSize:12,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 10px",marginTop:10}}>{req.hint}</div>}
+              </div>
+              <div style={{padding:"18px 22px"}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Date this actually happened *</div>
+                <input type="date" style={{...inp,marginBottom:16}} value={stageForm.action_date} onChange={e=>setStageForm(f=>({...f,action_date:e.target.value}))} />
+
+                {req.fields.map(f=>(
+                  <div key={f.key} style={{marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>{f.label}{f.required?" *":""}</div>
+                    {f.type==="select"?(
+                      <select style={inp} value={stageForm.stage_data[f.key]||""} onChange={e=>setStageForm(sf=>({...sf,stage_data:{...sf.stage_data,[f.key]:e.target.value}}))}>
+                        {f.options.map(o=><option key={o} value={o}>{o||"— Select —"}</option>)}
+                      </select>
+                    ):(
+                      <input type={f.type||"text"} style={inp} value={stageForm.stage_data[f.key]||""} onChange={e=>setStageForm(sf=>({...sf,stage_data:{...sf.stage_data,[f.key]:e.target.value}}))} />
+                    )}
+                  </div>
+                ))}
+
+                <div style={{fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Note / context (mandatory) *</div>
+                <div style={{fontSize:11,color:"#9CA3AF",marginBottom:4}}>Who instructed this? What happened? Any next steps?</div>
+                <textarea style={{...inp,minHeight:70,resize:"vertical",borderColor:"#6366F1"}} placeholder="e.g. Medical arranged by Zaheer, candidate attended on 15 Jan, GAMCA result awaited in 5 days..." value={stageForm.note} onChange={e=>setStageForm(f=>({...f,note:e.target.value}))} />
+
+                <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #F3F4F6"}}>
+                  <button style={btn()} onClick={()=>setStageModal(null)}>Cancel</button>
+                  <button style={{...btn(),background:STAGE_MAP[stageModal.toStage]?.color||"#6366F1",color:"#fff",border:"none",fontWeight:700}} onClick={confirmMoveStage}>
+                    Confirm → {req.label}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+
       <Modal id="cand" title={editId?"Edit Candidate":"Add New Candidate"} wide={640}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}} className="modal-grid">
           <FR label="Full Name *"><input key="name" style={inp} value={cf.name} onChange={e=>setCf(f=>({...f,name:e.target.value}))} /></FR>
