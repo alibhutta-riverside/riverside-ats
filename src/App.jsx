@@ -193,6 +193,8 @@ function AppInner() {
   const [waText, setWaText] = useState("");
   const [copied, setCopied] = useState(false);
   const [storageUsage, setStorageUsage] = useState(null);
+  const [staffList, setStaffList] = useState([]);
+  const [stageSlas, setStageSlas] = useState([]);
 
   // ── AUTH ──
   useEffect(() => {
@@ -212,10 +214,14 @@ function AppInner() {
     const { data: candsData } = await supabase.from("candidates").select("*").order("added_date",{ascending:false});
     const { data: logData } = await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(60);
     const { data: posData } = await supabase.from("job_positions").select("*");
+    const { data: staffData } = await supabase.from("profiles").select("id, full_name");
+    const { data: slaData } = await supabase.from("pipeline_stage_slas").select("*");
     setJobs(jobsData||[]);
     setCands(candsData||[]);
     setPositions(posData||[]);
     setLog((logData||[]).map(l=>({ msg:l.message, time:new Date(l.created_at).toLocaleDateString("en-GB") })));
+    setStaffList(staffData||[]);
+    setStageSlas(slaData||[]);
   }, []);
 
   useEffect(() => { if (session) fetchAll(); }, [session, fetchAll]);
@@ -394,7 +400,22 @@ function AppInner() {
     const diff = Date.now() - new Date(dateStr).getTime();
     return Math.max(0, Math.floor(diff / 86400000));
   };
-  const stageDurationColor = (days) => days === null ? "#9CA3AF" : days <= 3 ? "#10B981" : days <= 7 ? "#F59E0B" : "#EF4444";
+  // Per-stage SLA lookup (falls back to a generic 3/7 day rule if a stage
+  // has no configured target, e.g. before pipeline_stage_slas is seeded).
+  const slaFor = (stageId) => stageSlas.find(s=>s.stage===stageId);
+  const stageDurationColor = (days, stageId) => {
+    if (days === null) return "#9CA3AF";
+    const sla = stageId ? slaFor(stageId) : null;
+    const target = sla?.target_days ?? 3;
+    if (days <= target) return "#10B981";
+    if (days <= target * 1.5) return "#F59E0B";
+    return "#EF4444";
+  };
+  // Resolves stage_owner_ids -> readable names, e.g. "Zaheer Ashraf & Waqar Arif"
+  const ownerNames = (ownerIds) => {
+    if (!ownerIds || !ownerIds.length) return null;
+    return ownerIds.map(id => staffList.find(s=>s.id===id)?.full_name || "Unknown").join(" & ");
+  };
 
   const dc = detailId ? cands.find(c=>c.id===detailId) : null;
   const djob = dc ? jobs.find(j=>j.id===dc.job_id) : null;
@@ -651,7 +672,7 @@ function AppInner() {
                             {c.offered_salary && job?.salary && c.offered_salary!==job.salary && <div style={{fontSize:10,color:"#9CA3AF"}}>job default: {job.salary}</div>}
                           </td>
                           <td style={td}><StagePill stageId={c.stage}/></td>
-                          <td style={td}><span style={{fontSize:12,fontWeight:700,color:stageDurationColor(stageDays)}}>{stageDays===null?"—":`${stageDays} day${stageDays!==1?"s":""}`}</span></td>
+                          <td style={td}><span style={{fontSize:12,fontWeight:700,color:stageDurationColor(stageDays,c.stage)}}>{stageDays===null?"—":`${stageDays} day${stageDays!==1?"s":""}`}</span></td>
                           <td style={td}><Dot val={c.medical_status}/></td>
                           <td style={{...td,fontFamily:"monospace",fontSize:12}}>{c.visa_no||"—"}</td>
                           <td style={td} onClick={e=>e.stopPropagation()}>
@@ -670,17 +691,33 @@ function AppInner() {
           )}
 
           {/* ══ PIPELINE ══ */}
-          {page==="pipeline"&&(
+          {page==="pipeline"&&(()=>{
+            const pipelineCands = assignedCands.filter(c=>!["deployed","rejected"].includes(c.stage));
+            let overdueCount=0, atRiskCount=0;
+            pipelineCands.forEach(c=>{
+              const d = daysSince(c.stage_updated_at);
+              if (d===null) return;
+              const target = slaFor(c.stage)?.target_days ?? 3;
+              if (d > target*1.5) overdueCount++;
+              else if (d > target) atRiskCount++;
+            });
+            return (
             <div>
               <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
                 <select style={{...inp,width:"auto",minWidth:260,marginBottom:0}} value={jobFil} onChange={e=>setJobFil(e.target.value)}>
                   <option value="">All job orders (combined view)</option>{visibleJobs.map(j=><option key={j.id} value={j.id}>{j.ref} — {j.client} — {[j.position, ...positions.filter(p=>p.job_id===j.id).map(p=>p.position_name)].filter(Boolean).join(", ")}</option>)}
                 </select>
-                <div style={{display:"flex",gap:12,fontSize:11,color:"#6B7280",alignItems:"center"}}>
-                  <span style={{fontWeight:600}}>Time at current stage:</span>
-                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#10B981"}}/>0-3 days</span>
-                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#F59E0B"}}/>4-7 days</span>
-                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#EF4444"}}/>7+ days</span>
+                <div style={{display:"flex",gap:14,fontSize:11,color:"#6B7280",alignItems:"center",flexWrap:"wrap"}}>
+                  {(overdueCount>0||atRiskCount>0) && (
+                    <div style={{display:"flex",gap:8}}>
+                      {overdueCount>0 && <span style={{background:"#FEE2E2",color:"#B91C1C",fontWeight:700,borderRadius:20,padding:"3px 10px",fontSize:11}}>⚠ {overdueCount} overdue</span>}
+                      {atRiskCount>0 && <span style={{background:"#FEF3C7",color:"#92400E",fontWeight:700,borderRadius:20,padding:"3px 10px",fontSize:11}}>{atRiskCount} at risk</span>}
+                    </div>
+                  )}
+                  <span style={{fontWeight:600}}>Time at stage vs. SLA target:</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#10B981"}}/>On track</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#F59E0B"}}/>At risk</span>
+                  <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:"50%",background:"#EF4444"}}/>Overdue</span>
                 </div>
               </div>
               {(jobFil?visibleJobs.filter(j=>j.id===jobFil):visibleJobs).map(j=>{
@@ -705,6 +742,7 @@ function AppInner() {
                           </div>
                           {sc.map(c=>{
                             const days = daysSince(c.stage_updated_at);
+                            const owners = ownerNames(c.stage_owner_ids);
                             return (
                             <div key={c.id} style={{background:"#fff",border:`1px solid ${s.color}30`,borderLeft:`3px solid ${s.color}`,borderRadius:8,padding:"9px 11px",marginBottom:7,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}
                               onClick={()=>{setDetailId(c.id);setDtab("overview");}}>
@@ -713,8 +751,9 @@ function AppInner() {
                                   <Avatar url={c.photo_url} name={c.name} size={28}/>
                                   <div><div style={{fontWeight:600,fontSize:12,color:"#111827"}}>{c.name}</div><div style={{fontSize:11,color:"#6B7280"}}>{c.trade}</div></div>
                                 </div>
-                                <span style={{fontSize:10,fontWeight:700,color:stageDurationColor(days),whiteSpace:"nowrap",flexShrink:0}}>{days===null?"—":`${days}d`}</span>
+                                <span style={{fontSize:10,fontWeight:700,color:stageDurationColor(days,c.stage),whiteSpace:"nowrap",flexShrink:0}}>{days===null?"—":`${days}d`}</span>
                               </div>
+                              {owners && <div style={{fontSize:10,color:"#6366F1",marginTop:5,display:"flex",alignItems:"center",gap:3}}><span>👤</span>{owners}</div>}
                               {c.status_note && <div style={{fontSize:10,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"3px 6px",marginTop:6}}>⚠ {c.status_note}</div>}
                             </div>
                           );})}
@@ -725,7 +764,8 @@ function AppInner() {
                 </div>;
               })}
             </div>
-          )}
+            );
+          })()}
 
           {/* ══ JOB ORDERS ══ */}
           {page==="jobs"&&(
@@ -900,7 +940,8 @@ function AppInner() {
                       </div>
                       <div>
                         <div style={{fontSize:10,color:"#9CA3AF"}}>At current stage since</div>
-                        <div style={{fontSize:13,fontWeight:700,color:stageDurationColor(daysSince(dc.stage_updated_at))}}>{fmtDate(dc.stage_updated_at)} ({daysSince(dc.stage_updated_at)} days)</div>
+                        <div style={{fontSize:13,fontWeight:700,color:stageDurationColor(daysSince(dc.stage_updated_at),dc.stage)}}>{fmtDate(dc.stage_updated_at)} ({daysSince(dc.stage_updated_at)} days)</div>
+                        {ownerNames(dc.stage_owner_ids) && <div style={{fontSize:11,color:"#6366F1",marginTop:3}}>👤 {ownerNames(dc.stage_owner_ids)}</div>}
                       </div>
                     </div>
                     <div style={{fontSize:10,color:"#9CA3AF",marginBottom:4}}>Estimated completion date (shown to client in reports)</div>
